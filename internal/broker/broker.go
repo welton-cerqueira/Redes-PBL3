@@ -351,7 +351,6 @@ func (b *Broker) tratarReplicacaoFila(mensagem tipos.Mensagem) {
 	var dadosBytes []byte
 	var err error
 
-	utils.RegistrarLog("DEBUG", "[BROKER-%s] Dados recebidos: len=%d, raw=%q", b.id, len(dadosBytes), dadosBytes) //remover este campo depois ===========
 	switch v := mensagem.Dados.(type) {
 	case []byte:
 		dadosBytes = v
@@ -483,10 +482,6 @@ func (b *Broker) enviarRespostaTCP(endereco string, resposta interface{}) error 
 }
 
 // processarRequisicoes consome o canal de processamento respeitando a ordem de prioridade.
-//
-// Correções aplicadas:
-//   - Verifica se a requisição ainda existe na fila antes de processar (evita "fantasmas")
-//   - Após falha com back-off, usa RenotificarRequisicao em vez de looping direto
 func (b *Broker) processarRequisicoes() {
 	utils.RegistrarLog("INFO", "Iniciando processamento de fila no broker %s", b.id)
 
@@ -954,19 +949,15 @@ func (b *Broker) ehMensagemSensor(payload map[string]interface{}) bool {
 }
 
 // processarSensorPayload processa dados de telemetria recebidos de um sensor.
-//
-// Correções aplicadas (PROBLEMA 4):
-//   - Todos os json.Encoder.Encode verificam e logam erros
-//   - SetWriteDeadline protege contra conexões lentas/travadas
-//   - Evento crítico só é enfileirado APÓS confirmação do ACK
-//   - Mensagem de registro (sem "valor") responde e retorna imediatamente
 func (b *Broker) processarSensorPayload(payload map[string]interface{}, conn net.Conn) {
 	_, temValor := payload["valor"]
 
-	// Handshake de registro: sensor enviou apenas seus metadados, sem leitura
+	// Se não há valor, é um pedido de registro de sensor
 	if !temValor {
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		//Cria resposta de confirmação com status e ID do broker
 		resposta := map[string]string{"status": "registrado", "setor_id": b.id}
+		//Envia resposta em formato JSON para o sensor
 		if err := json.NewEncoder(conn).Encode(resposta); err != nil {
 			utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao confirmar registro de sensor: %v",
 				b.id, err)
@@ -994,7 +985,7 @@ func (b *Broker) processarSensorPayload(payload map[string]interface{}, conn net
 		}
 	}
 
-	// Envia ACK ao sensor com deadline para não bloquear em conexão lenta
+	// Envia ACK (Confirmação) ao sensor com deadline (prazo final) para não bloquear em conexão lenta
 	ack := map[string]interface{}{
 		"status":         "recebido",
 		"timestamp":      time.Now(),
@@ -1005,7 +996,6 @@ func (b *Broker) processarSensorPayload(payload map[string]interface{}, conn net
 
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if err := json.NewEncoder(conn).Encode(ack); err != nil {
-		// ACK não entregue: não processa o evento para manter consistência
 		utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao enviar ACK (tipo=%s valor=%.2f): %v",
 			b.id, tipo, valor, err)
 		conn.SetWriteDeadline(time.Time{})
@@ -1020,7 +1010,8 @@ func (b *Broker) processarSensorPayload(payload map[string]interface{}, conn net
 	}
 
 	// Evento crítico: cria e enfileira requisição de alocação de drone
-	requisicaoID := fmt.Sprintf("req-%d", time.Now().UnixNano())
+
+	requisicaoID := fmt.Sprintf("req-%d", time.Now().UnixNano()) //Gera ID único baseado no timestamp atual
 
 	b.requisicoesMutex.Lock()
 	b.requisicoesEmAndamento[requisicaoID] = ""
@@ -1104,10 +1095,7 @@ func (b *Broker) tratarDroneDisponivel(msg tipos.Mensagem) {
 		utils.RegistrarLog("AVISO", "[BROKER-%s] DRONE_DISPONIVEL sem campo drone_id", b.id)
 		return
 	}
-	if err := b.gerenciadorRecursos.LiberarRecurso(droneID); err != nil {
-		utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao liberar drone %s: %v", b.id, droneID, err)
-		return
-	}
+
 	b.mutexDistribuido.LiberarAcesso(droneID)
 	utils.RegistrarLog("INFO", "[BROKER-%s] %s voltou para DISPONIVEL", b.id, droneID)
 }

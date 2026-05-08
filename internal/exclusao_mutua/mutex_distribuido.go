@@ -211,15 +211,17 @@ func (md *MutexDistribuido) LiberarAcesso(recursoID string) {
 	delete(md.recursoBloqueado, recursoID)
 
 	// Libera o recurso no gerenciador
-	if md.gerenciadorRecursos != nil {
-		md.gerenciadorRecursos.LiberarRecurso(recursoID)
+	if err := md.gerenciadorRecursos.LiberarRecurso(recursoID); err != nil {
+		utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao liberar recurso %s: %v",
+			md.idBroker, recursoID, err)
+		// NÃO retorna aqui - continua para processar fila
 	}
 
-	utils.RegistrarLog("INFO", "Broker %s liberou lock para recurso %s", md.idBroker, recursoID)
+	utils.RegistrarLog("INFO", "Broker %s liberou lock para recurso %s",
+		md.idBroker, recursoID)
 
 	// Notifica próximo da fila se houver
 	if fila, ok := md.filaEspera[recursoID]; ok && len(fila) > 0 {
-		// Remove o primeiro da fila
 		md.filaEspera[recursoID] = fila[1:]
 		utils.RegistrarLog("INFO", "Recurso %s liberado, próximo da fila pode tentar", recursoID)
 	}
