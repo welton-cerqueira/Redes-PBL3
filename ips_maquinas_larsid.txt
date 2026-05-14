@@ -29,7 +29,13 @@ docker run -d --name broker \
   -e LAB_IPS="172.16.103.1 172.16.103.2 172.16.103.3 172.16.103.4" \
   broker:latest
 
+docker run -d --name broker --network host \
+  -e LAB_IPS="172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4" \
+  broker:latest
 
+
+# Rodar um script .sh
+./Meu_Script.sh
 
 ###Comandos para ver logs e remover conteiner
 
@@ -39,10 +45,18 @@ docker logs -f broker
 docker rm -f broker
 
 
+
 ### Como remover um broker (sem afetar o resto)
 
 docker stop broker
 docker rm broker
+
+### 2. Remover brokers nas outras máquinas
+
+for ip in 172.16.201.4 172.16.201.6 172.16.201.9 172.16.201.14; do
+    ssh tec502@$ip "docker rm -f broker 2>/dev/null; docker rm -f drone-01 drone-02 sensor-01 sensor-02 2>/dev/null"
+done
+
 
 
 ### Remove pasta
@@ -52,11 +66,10 @@ rm -rf SISTEMA-DISTRIBUIDO-REDES2
 
 
 
-
-
 📊 ver logs de todos os brokers (4 terminais em um):
 
 tail -f logs/broker1.log logs/broker2.log logs/broker3.log logs/broker4.log
+
 
 📈 LOGS INDIVIDUAIS:
 
@@ -72,24 +85,188 @@ tail -f logs/broker3.log
 # Broker 4 (Oeste):
 tail -f logs/broker4.log
 
-🛑 DERRUBAR BROKERS INDIVIDUALMENTE:
 
-# Parar Broker 1:
-pkill -f 'broker-1'
 
-# Parar Broker 2:
-pkill -f 'broker-2'
 
-# Parar Broker 3:
-pkill -f 'broker-3'
 
-# Parar Broker 4:
-pkill -f 'broker-4'
 
-🚨 EMERGÊNCIA:
 
-# Parar tudo:
-pkill -f broker && pkill -f drone && pkill -f sensor
 
-# Forçar parada:
-pkill -9 -f broker && pkill -9 -f drone && pkill -9 -f sensor
+
+📦 COMANDOS COMPLETOS PARA O SISTEMA DISTRIBUÍDO
+Aqui está o guia completo para construir e rodar tudo nas 4 máquinas do laboratório.
+
+1. CONSTRUIR TODAS AS IMAGENS (em cada máquina)
+Execute estes comandos em cada uma das 4 máquinas (ladica01, ladica02, ladica03, ladica04):
+
+bash
+# Entrar no diretório do projeto
+cd ~/SISTEMA-DISTRIBUIDO-REDES2
+
+# Construir imagem do broker
+docker build -t broker:latest -f Dockerfile .
+
+# Construir imagem do drone
+docker build -t drone:latest -f Dockerfile.drone .
+
+# Construir imagem do sensor
+docker build -t sensor:latest -f Dockerfile.sensor .
+
+
+
+# Verificar imagens criadas
+docker images | grep -E "broker|drone|sensor"
+
+2. RODAR OS BROKERS (4 máquinas)
+
+Na ladica01 (172.16.201.1):
+bash
+docker rm -f broker 2>/dev/null
+docker run -d --name broker --network host \
+  -e LAB_IPS="172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4" \
+  broker:latest
+
+Na ladica02 (172.16.201.2):
+bash
+ssh tec502@172.16.201.2 "docker rm -f broker 2>/dev/null; docker run -d --name broker --network host -e LAB_IPS='172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4' broker:latest"
+
+Na ladica03 (172.16.201.3):
+bash
+ssh tec502@172.16.201.3 "docker rm -f broker 2>/dev/null; docker run -d --name broker --network host -e LAB_IPS='172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4' broker:latest"
+
+Na ladica04 (172.16.201.4):
+bash
+ssh tec502@172.16.201.4 "docker rm -f broker 2>/dev/null; docker run -d --name broker --network host -e LAB_IPS='172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4' broker:latest"
+
+
+
+3. RODAR OS DRONES (2 por máquina)
+
+Na ladica01:
+bash
+docker rm -f drone-01 drone-02 2>/dev/null
+docker run -d --name drone-01 --network host drone:latest ./drone -id=drone-01 -port=:9101
+docker run -d --name drone-02 --network host drone:latest ./drone -id=drone-02 -port=:9102
+
+Na ladica02:
+bash
+ssh tec502@172.16.201.2 "docker rm -f drone-01 drone-02 2>/dev/null; \
+  docker run -d --name drone-01 --network host drone:latest ./drone -id=drone-03 -port=:9103; \
+  docker run -d --name drone-02 --network host drone:latest ./drone -id=drone-04 -port=:9104"
+
+Na ladica03:
+bash
+ssh tec502@172.16.201.3 "docker rm -f drone-01 drone-02 2>/dev/null; \
+  docker run -d --name drone-01 --network host drone:latest ./drone -id=drone-05 -port=:9105; \
+  docker run -d --name drone-02 --network host drone:latest ./drone -id=drone-06 -port=:9106"
+
+Na ladica04:
+bash
+ssh tec502@172.16.201.4 "docker rm -f drone-01 drone-02 2>/dev/null; \
+  docker run -d --name drone-01 --network host drone:latest ./drone -id=drone-07 -port=:9107; \
+  docker run -d --name drone-02 --network host drone:latest ./drone -id=drone-08 -port=:9108"
+
+
+
+
+4. RODAR OS SENSORES (2 por máquina)
+
+Na ladica01:
+bash
+docker rm -f sensor-01 sensor-02 2>/dev/null
+docker run -d --name sensor-01 --network host sensor:latest ./sensor -id=sensor-01 -tipo=movimento -local=setor-norte-1 -brokers=172.16.201.1:9002
+docker run -d --name sensor-02 --network host sensor:latest ./sensor -id=sensor-02 -tipo=temperatura -local=setor-norte-2 -brokers=172.16.201.1:9002
+
+Na ladica02:
+bash
+ssh tec502@172.16.201.2 "docker rm -f sensor-01 sensor-02 2>/dev/null; \
+  docker run -d --name sensor-01 --network host sensor:latest ./sensor -id=sensor-03 -tipo=pressao -local=setor-sul-1 -brokers=172.16.201.2:9012; \
+  docker run -d --name sensor-02 --network host sensor:latest ./sensor -id=sensor-04 -tipo=movimento -local=setor-sul-2 -brokers=172.16.201.2:9012"
+
+Na ladica03:
+bash
+ssh tec502@172.16.201.3 "docker rm -f sensor-01 sensor-02 2>/dev/null; \
+  docker run -d --name sensor-01 --network host sensor:latest ./sensor -id=sensor-05 -tipo=temperatura -local=setor-leste-1 -brokers=172.16.201.3:9022; \
+  docker run -d --name sensor-02 --network host sensor:latest ./sensor -id=sensor-06 -tipo=pressao -local=setor-leste-2 -brokers=172.16.201.3:9022"
+
+Na ladica04:
+bash
+ssh tec502@172.16.201.4 "docker rm -f sensor-01 sensor-02 2>/dev/null; \
+  docker run -d --name sensor-01 --network host sensor:latest ./sensor -id=sensor-07 -tipo=movimento -local=setor-oeste-1 -brokers=172.16.201.4:9032; \
+  docker run -d --name sensor-02 --network host sensor:latest ./sensor -id=sensor-08 -tipo=temperatura -local=setor-oeste-2 -brokers=172.16.201.4:9032"
+
+
+
+
+
+5. VERIFICAR STATUS DE TUDO
+
+Verificar containers rodando em todas as máquinas:
+bash
+for ip in 172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4; do
+    echo "=== $ip ==="
+    ssh tec502@$ip "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+    echo ""
+done
+
+
+Verificar qual é o líder atual (em qualquer broker):
+bash
+docker logs broker 2>&1 | grep "líder eleito" | tail -1
+Ver logs do broker em tempo real:
+
+bash
+# No broker local
+docker logs -f broker
+
+# Em broker remoto
+ssh tec502@172.16.201.2 "docker logs -f broker"
+
+Ver logs de um drone específico:
+bash
+docker logs -f drone-01
+
+Ver logs de um sensor específico:
+bash
+docker logs -f sensor-01
+
+
+
+
+6. PARAR TUDO (se necessário)
+Parar brokers, drones e sensores em todas as máquinas:
+bash
+for ip in 172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4; do
+    echo "=== Parando tudo em $ip ==="
+    ssh tec502@$ip "docker rm -f broker drone-01 drone-02 sensor-01 sensor-02 2>/dev/null"
+done
+
+
+
+
+7. COMANDOS ÚTEIS ADICIONAIS
+
+Ver heartbeat entre brokers:
+bash
+docker logs broker 2>&1 | grep -E "batimento|heartbeat" | tail -10
+
+Ver requisições processadas:
+bash
+docker logs broker 2>&1 | grep -E "requisição|alocado" | tail -10
+
+Ver eventos críticos detectados:
+bash
+docker logs broker 2>&1 | grep -E "ALERTA|evento crítico" | tail -10
+
+Ver estatísticas da fila distribuída:
+bash
+docker logs broker 2>&1 | grep -E "fila|Fila" | tail -10
+
+
+📋 RESUMO DOS COMPONENTES
+Máquina	Broker	Portas (TCP/UDP/Sensores)	Drones	Sensores
+ladica01 (172.16.201.1)	broker-1	9000/9001/9002	drone-01, drone-02	sensor-01, sensor-02
+ladica02 (172.16.201.2)	broker-2	9010/9011/9012	drone-03, drone-04	sensor-03, sensor-04
+ladica03 (172.16.201.3)	broker-3	9020/9021/9022	drone-05, drone-06	sensor-05, sensor-06
+ladica04 (172.16.201.4)	broker-4	9030/9031/9032	drone-07, drone-08	sensor-07, sensor-08
+Execute em ordem: 1 → 2 → 3 → 4 → 5 e me mostre os resultados! 🚀

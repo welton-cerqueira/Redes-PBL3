@@ -82,6 +82,7 @@ sudo apt update
 sudo apt install -y openssh-client sshpass iputils-ping
 ```
 
+
 ## 🚀 Execução no Laboratório
 
 ### 🌐 Opção 0: Deploy Automático Universal (Recomendado)
