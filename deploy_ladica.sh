@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Script de Deploy para Laboratório LADICA
-# Uso: ./deploy_ladica.sh --ips "172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4"
+# Script de Deploy para Laboratório (genérico - aceita qualquer rede)
+# Uso: ./deploy_ladica.sh --ips "172.16.103.1 172.16.103.2 172.16.103.3 172.16.103.4"
 
 set -e
 
@@ -19,10 +19,6 @@ SSH_USER="${SSH_USER:-tec502}"
 SSH_PASS="${SSH_PASS:-}"
 PROJECT_DIR="SISTEMA-DISTRIBUIDO-REDES2"
 REPO_URL="https://github.com/welton-cerqueira/SISTEMA-DISTRIBUIDO-REDES2.git"
-BASE_PORTS=(9000 9010 9020 9030)  # TCP ports para cada broker
-BASE_UDP_PORTS=(9001 9011 9021 9031)  # UDP ports
-BASE_SENSOR_PORTS=(9002 9012 9022 9032)  # Sensor ports
-DRONE_PORTS=(9101 9102 9103 9104 9105 9106 9107 9108)  # Drones
 
 # Arrays para armazenar IPs
 declare -a IPS_LIST=()
@@ -31,7 +27,7 @@ declare -a IPS_LIST=()
 show_help() {
     echo ""
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO - LABORATÓRIO LADICA${NC}              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO - LABORATÓRIO${NC}                       ${CYAN}║${NC}"
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}Uso:${NC} $0 --ips \"IP1 IP2 IP3 IP4\" [OPÇÕES]"
@@ -43,15 +39,7 @@ show_help() {
     echo "  --help                    Mostra esta ajuda"
     echo ""
     echo -e "${BLUE}Exemplo:${NC}"
-    echo "  $0 --ips \"172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4\""
-    echo "  $0 --ips \"192.168.1.101 192.168.1.102 192.168.1.103 192.168.1.104\" --user aluno --pass 123456"
-    echo ""
-    echo -e "${BLUE}O que o script faz:${NC}"
-    echo "  1. Constrói imagens Docker (broker, drone, sensor) em cada máquina"
-    echo "  2. Inicia 1 broker por máquina"
-    echo "  3. Inicia 2 drones por máquina (total 8 drones)"
-    echo "  4. Inicia 2 sensores por máquina (total 8 sensores)"
-    echo "  5. Configura LAB_IPS automaticamente entre as máquinas"
+    echo "  $0 --ips \"172.16.103.1 172.16.103.2 172.16.103.3 172.16.103.4\""
     echo ""
 }
 
@@ -65,6 +53,12 @@ check_dependencies() {
             deps_ok=false
         fi
     done
+    
+    # Verificar sshpass se senha foi fornecida
+    if [ -n "$SSH_PASS" ] && ! command -v sshpass &> /dev/null; then
+        echo -e "${RED}❌ sshpass não encontrado. Instale com: sudo apt install sshpass${NC}"
+        deps_ok=false
+    fi
     
     if [ "$deps_ok" = false ]; then
         exit 1
@@ -91,7 +85,6 @@ testar_conexao() {
 # Função para construir imagens em uma máquina
 build_images() {
     local ip=$1
-    local index=$2
     
     echo -e "${BLUE}[$ip] Construindo imagens Docker...${NC}"
     
@@ -102,7 +95,8 @@ build_images() {
         echo '  → Drone...' && \
         docker build -t drone:latest -f Dockerfile.drone . && \
         echo '  → Sensor...' && \
-        docker build -t sensor:latest -f Dockerfile.sensor .
+        docker build -t sensor:latest -f Dockerfile.sensor . && \
+        echo '  ✓ Imagens construídas com sucesso!'
     "
     
     if [ -n "$SSH_PASS" ]; then
@@ -118,13 +112,23 @@ deploy_broker() {
     local index=$2
     local lab_ips_str="$3"
     
-    echo -e "${BLUE}[$ip] Deployando broker-$((index+1))...${NC}"
+    local broker_id=$((index + 1))
+    local base_port=$((9000 + index * 10))
+    local tcp_port=":${base_port}"
+    local udp_port=":$(($base_port+1))"
+    local sensor_port=":$(($base_port+2))"
+    
+    echo -e "${BLUE}[$ip] Deployando broker-${broker_id} (portas: TCP=${base_port}, UDP=$(($base_port+1)), Sensores=$(($base_port+2)))...${NC}"
     
     local cmd="
         docker rm -f broker 2>/dev/null || true && \
         docker run -d --name broker --network host \
             -e LAB_IPS='$lab_ips_str' \
-            broker:latest
+            broker:latest \
+            -id=broker-${broker_id} \
+            -porta-tcp=$tcp_port \
+            -porta-udp=$udp_port \
+            -porta-ctrl=$sensor_port
     "
     
     if [ -n "$SSH_PASS" ]; then
@@ -134,17 +138,24 @@ deploy_broker() {
     fi
 }
 
-# Função para deploy dos drones
+# Função para deploy dos drones (IDs ÚNICOS de 1 a 8)
 deploy_drones() {
     local ip=$1
     local index=$2
-    local drone_offset=$((index * 2))
-    local drone1_id=$((drone_offset + 1))
-    local drone2_id=$((drone_offset + 2))
-    local drone1_port=${DRONE_PORTS[$drone_offset]}
-    local drone2_port=${DRONE_PORTS[$((drone_offset + 1))]}
     
-    echo -e "${BLUE}[$ip] Deployando drones (drone-$(printf "%02d" $drone1_id) e drone-$(printf "%02d" $drone2_id))...${NC}"
+    # Cálculo dos IDs únicos dos drones (1 a 8)
+    # Máquina 0 (índice 0): drones 1 e 2
+    # Máquina 1 (índice 1): drones 3 e 4
+    # Máquina 2 (índice 2): drones 5 e 6
+    # Máquina 3 (índice 3): drones 7 e 8
+    local drone1_id=$((index * 2 + 1))
+    local drone2_id=$((index * 2 + 2))
+    
+    # Portas baseadas no ID do drone (9101 a 9108)
+    local drone1_port=$((9100 + drone1_id))
+    local drone2_port=$((9100 + drone2_id))
+    
+    echo -e "${BLUE}[$ip] Deployando drones: drone-$(printf "%02d" $drone1_id) (porta $drone1_port) e drone-$(printf "%02d" $drone2_id) (porta $drone2_port)...${NC}"
     
     local cmd="
         docker rm -f drone-01 drone-02 2>/dev/null || true && \
@@ -159,16 +170,22 @@ deploy_drones() {
     fi
 }
 
-# Função para deploy dos sensores
+# Função para deploy dos sensores (IDs ÚNICOS de 1 a 8)
 deploy_sensores() {
     local ip=$1
     local index=$2
-    local sensor_port=${BASE_SENSOR_PORTS[$index]}
-    local sensor_offset=$((index * 2))
-    local sensor1_id=$((sensor_offset + 1))
-    local sensor2_id=$((sensor_offset + 2))
     
-    echo -e "${BLUE}[$ip] Deployando sensores (sensor-$(printf "%02d" $sensor1_id) e sensor-$(printf "%02d" $sensor2_id))...${NC}"
+    # Cálculo dos IDs únicos dos sensores (1 a 8)
+    # Máquina 0 (índice 0): sensores 1 e 2
+    # Máquina 1 (índice 1): sensores 3 e 4
+    # Máquina 2 (índice 2): sensores 5 e 6
+    # Máquina 3 (índice 3): sensores 7 e 8
+    local sensor1_id=$((index * 2 + 1))
+    local sensor2_id=$((index * 2 + 2))
+    
+    local sensor_port=$((9002 + index * 10))
+    
+    echo -e "${BLUE}[$ip] Deployando sensores: sensor-$(printf "%02d" $sensor1_id) e sensor-$(printf "%02d" $sensor2_id)...${NC}"
     
     # Define tipos e localizações baseados no índice
     case $index in
@@ -214,7 +231,6 @@ deploy_sensores() {
 # Função para verificar status
 check_status() {
     local ip=$1
-    local index=$2
     
     echo -e "${BLUE}[$ip] Verificando status...${NC}"
     
@@ -296,7 +312,7 @@ main() {
     
     echo ""
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO - LABORATÓRIO LADICA${NC}              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO - LABORATÓRIO${NC}                       ${CYAN}║${NC}"
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}📋 Configuração:${NC}"
@@ -322,6 +338,18 @@ main() {
     echo -e "${BLUE}📡 LAB_IPS configurado: ${GREEN}$LAB_IPS_STRING${NC}"
     echo ""
     
+    # Mostrar tabela de IDs
+    echo -e "${BLUE}📊 Tabela de IDs únicos:${NC}"
+    echo "  ┌────────────┬──────────────┬────────────────┬─────────────────┐"
+    echo "  │ Máquina    │ Broker       │ Drones         │ Sensores        │"
+    echo "  ├────────────┼──────────────┼────────────────┼─────────────────┤"
+    printf "  │ %-10s │ %-12s │ drone-01,02    │ sensor-01,02    │\n" "${IPS_LIST[0]}"
+    printf "  │ %-10s │ %-12s │ drone-03,04    │ sensor-03,04    │\n" "${IPS_LIST[1]}"
+    printf "  │ %-10s │ %-12s │ drone-05,06    │ sensor-05,06    │\n" "${IPS_LIST[2]}"
+    printf "  │ %-10s │ %-12s │ drone-07,08    │ sensor-07,08    │\n" "${IPS_LIST[3]}"
+    echo "  └────────────┴──────────────┴────────────────┴─────────────────┘"
+    echo ""
+    
     # Confirmar deploy
     echo -e "${YELLOW}⚠️  O deploy será feito nas seguintes máquinas:${NC}"
     for i in "${!IPS_LIST[@]}"; do
@@ -343,7 +371,7 @@ main() {
         echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
         
         setup_repository $ip
-        build_images $ip $i
+        build_images $ip
         deploy_broker $ip $i "$LAB_IPS_STRING"
         deploy_drones $ip $i
         deploy_sensores $ip $i
@@ -352,8 +380,8 @@ main() {
     done
     
     # Aguardar inicialização
-    echo -e "${BLUE}⏳ Aguardando 10 segundos para os brokers se estabilizarem...${NC}"
-    sleep 10
+    echo -e "${BLUE}⏳ Aguardando 15 segundos para os brokers se estabilizarem...${NC}"
+    sleep 15
     
     # Verificar status final
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
@@ -364,7 +392,7 @@ main() {
     for i in "${!IPS_LIST[@]}"; do
         ip=${IPS_LIST[$i]}
         echo -e "${BLUE}=== Máquina $((i+1)): $ip ===${NC}"
-        check_status $ip $i
+        check_status $ip
         echo ""
     done
     
@@ -390,7 +418,12 @@ main() {
     echo "  Ver logs de um broker:     ssh $SSH_USER@<ip> 'docker logs -f broker'"
     echo "  Ver logs de um drone:      ssh $SSH_USER@<ip> 'docker logs -f drone-01'"
     echo "  Ver logs de um sensor:     ssh $SSH_USER@<ip> 'docker logs -f sensor-01'"
-    echo "  Parar tudo:                for ip in ${IPS_LIST[*]}; do ssh $SSH_USER@\$ip 'docker rm -f broker drone-01 drone-02 sensor-01 sensor-02'; done"
+    echo ""
+    echo -e "${BLUE}📊 Verificar líder em todos os brokers:${NC}"
+    echo "  for ip in ${IPS_LIST[*]}; do echo \"=== \$ip ===\"; ssh $SSH_USER@\$ip 'docker logs broker 2>&1 | grep \"Novo líder eleito\" | tail -1'; done"
+    echo ""
+    echo -e "${BLUE}🛑 Parar tudo:${NC}"
+    echo "  for ip in ${IPS_LIST[*]}; do ssh $SSH_USER@\$ip 'docker rm -f broker drone-01 drone-02 sensor-01 sensor-02'; done"
     echo ""
 }
 

@@ -51,12 +51,12 @@ docker rm -f broker
 docker stop broker
 docker rm broker
 
+
 ### 2. Remover brokers nas outras máquinas
 
-for ip in 172.16.201.4 172.16.201.6 172.16.201.9 172.16.201.14; do
-    ssh tec502@$ip "docker rm -f broker 2>/dev/null; docker rm -f drone-01 drone-02 sensor-01 sensor-02 2>/dev/null"
+for ip in 172.16.103.1 172.16.103.2 172.16.103.3 172.16.103.4; do 
+ssh tec502@$ip "docker rm -f broker drone-01 drone-02 sensor-01 sensor-02 2>/dev/null"; 
 done
-
 
 
 ### Remove pasta
