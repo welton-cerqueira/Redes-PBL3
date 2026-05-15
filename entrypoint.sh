@@ -69,18 +69,16 @@ fi
 echo "IP local detectado: $MY_IP"
 
 # Lista de IPs da LAB_IPS (separadores: espaço, vírgula, ponto e vírgula)
-# Filtra apenas IPs da faixa 172.16.201.x (rede do laboratório)
+# Filtra apenas IPs  (rede do laboratório)
+# Aceita qualquer IP (sem filtro de rede)
 LAB_IPS_LIST=""
 for ip in $(echo "$LAB_IPS" | tr ',;' ' '); do
-    # Aceita apenas IPs da rede 172.16.201.x (rede do LADICA)
-    case "$ip" in
-        172.16.201.*)
-            LAB_IPS_LIST="$LAB_IPS_LIST $ip"
-            ;;
-        *)
-            echo "AVISO: Ignorando IP fora da rede do laboratório: $ip"
-            ;;
-    esac
+    # Validação simples de formato IPv4 (opcional)
+    if echo "$ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+        LAB_IPS_LIST="$LAB_IPS_LIST $ip"
+    else
+        echo "AVISO: Ignorando IP inválido: $ip"
+    fi
 done
 
 # Remove espaço inicial
