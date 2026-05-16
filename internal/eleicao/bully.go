@@ -33,8 +33,8 @@ func NovaEleicaoBully(idBroker string, vizinhos map[string]*tipos.Vizinho) *Algo
 		emEleicao:           false,
 		canalEleicao:        make(chan tipos.Mensagem, 100),
 		canalResultado:      make(chan string, 10),
-		tempoEsperaResposta: 10 * time.Second,
-		tempoEsperaVitoria:  15 * time.Second,
+		tempoEsperaResposta: 15 * time.Second,
+		tempoEsperaVitoria:  20 * time.Second,
 	}
 }
 
@@ -101,23 +101,23 @@ func (ab *AlgoritmoBully) IniciarEleicao() {
 	}
 }
 
-// aguardarVitoria aguarda a declaraÃ§Ã£o de vitÃ³ria de um broker maior
+// aguardarVitoria aguarda a declaração de vitória de um broker maior
 func (ab *AlgoritmoBully) aguardarVitoria() {
-	utils.RegistrarLog("INFO", "Broker %s aguardando anÃºncio de vitÃ³ria", ab.idBroker)
+	utils.RegistrarLog("INFO", "Broker %s aguardando anúncio de vitória", ab.idBroker)
 
 	// Aguarda mensagem de VITORIA ou timeout
 	select {
 	case msg := <-ab.canalEleicao:
 		if msg.Tipo == "VITORIA" {
-			utils.RegistrarLog("INFO", "Broker %s recebeu anÃºncio de vitÃ³ria de %s",
+			utils.RegistrarLog("INFO", "Broker %s recebeu anúncio de vitória de %s",
 				ab.idBroker, msg.OrigemID)
 			ab.mutex.Lock()
 			ab.emEleicao = false
 			ab.mutex.Unlock()
 		}
 	case <-time.After(ab.tempoEsperaVitoria):
-		// Timeout aguardando vitÃ³ria, inicia nova eleiÃ§Ã£o
-		utils.RegistrarLog("AVISO", "Broker %s timeout aguardando vitÃ³ria, iniciando nova eleiÃ§Ã£o", ab.idBroker)
+		// Timeout aguardando vitÃ³ria, inicia nova eleição
+		utils.RegistrarLog("AVISO", "Broker %s timeout aguardando vitória, iniciando nova eleição", ab.idBroker)
 		ab.mutex.Lock()
 		ab.emEleicao = false
 		ab.mutex.Unlock()
@@ -152,20 +152,20 @@ func (ab *AlgoritmoBully) enviarMensagensEleicao(brokers []*tipos.Vizinho) {
 	for _, broker := range brokers {
 		go func(c *tipos.Vizinho) {
 			if err := ab.enviarMensagemTCP(c.EnderecoTCP, mensagem); err != nil {
-				utils.RegistrarLog("ERRO", "Falha ao enviar eleiÃ§Ã£o para %s: %v", c.ID, err)
+				utils.RegistrarLog("ERRO", "Falha ao enviar eleição para %s: %v", c.ID, err)
 			}
 		}(broker)
 	}
 }
 
-// declararVitoria declara este broker como vencedor da eleiÃ§Ã£o
+// declararVitoria declara este broker como vencedor da eleição
 func (ab *AlgoritmoBully) declararVitoria() {
 	ab.mutex.Lock()
 	ab.liderAtual = ab.idBroker
 	ab.emEleicao = false
 	ab.mutex.Unlock()
 
-	utils.RegistrarLog("INFO", "Broker %s se declarou lÃ­der", ab.idBroker)
+	utils.RegistrarLog("INFO", "Broker %s se declarou lider", ab.idBroker)
 
 	// Anuncia vitÃ³ria para todos os vizinhos
 	ab.anunciarVitoria()
@@ -193,7 +193,7 @@ func (ab *AlgoritmoBully) anunciarVitoria() {
 		if vizinho.Ativo {
 			go func(v *tipos.Vizinho) {
 				if err := ab.enviarMensagemTCP(v.EnderecoTCP, mensagem); err != nil {
-					utils.RegistrarLog("ERRO", "Falha ao anunciar vitÃ³ria para %s: %v", v.ID, err)
+					utils.RegistrarLog("ERRO", "Falha ao anunciar vitória para %s: %v", v.ID, err)
 				}
 			}(vizinho)
 		}
@@ -234,7 +234,7 @@ func (ab *AlgoritmoBully) ProcessarMensagemEleicao(msg tipos.Mensagem) {
 		select {
 		case ab.canalEleicao <- msg:
 		default:
-			utils.RegistrarLog("AVISO", "Canal de eleiÃ§Ã£o cheio, descartando mensagem de %s", msg.OrigemID)
+			utils.RegistrarLog("AVISO", "Canal de eleição cheio, descartando mensagem de %s", msg.OrigemID)
 		}
 
 	case "VITORIA":
@@ -243,7 +243,7 @@ func (ab *AlgoritmoBully) ProcessarMensagemEleicao(msg tipos.Mensagem) {
 			if lider, existe := dados["lider"]; existe {
 				liderStr, ok := lider.(string)
 				if !ok || liderStr == "" {
-					utils.RegistrarLog("AVISO", "Mensagem VITORIA invÃ¡lida recebida de %s", msg.OrigemID)
+					utils.RegistrarLog("AVISO", "Mensagem VITORIA inválida recebida de %s", msg.OrigemID)
 					return
 				}
 
@@ -252,7 +252,7 @@ func (ab *AlgoritmoBully) ProcessarMensagemEleicao(msg tipos.Mensagem) {
 				ab.emEleicao = false
 				ab.mutex.Unlock()
 
-				utils.RegistrarLog("INFO", "Broker %s reconhece %s como lÃ­der",
+				utils.RegistrarLog("INFO", "Broker %s reconhece %s como lider",
 					ab.idBroker, liderStr)
 
 				// Encaminha para o canal de eleiÃ§Ã£o tambÃ©m

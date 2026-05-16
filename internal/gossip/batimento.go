@@ -41,7 +41,7 @@ func NovoGerenciadorBatimentos(idBroker string, vizinhos map[string]*tipos.Vizin
 		vizinhos:           vizinhos,
 		conexaoUDP:         conexao,
 		intervaloBatimento: 2 * time.Second,
-		tempoLimiteFalha:   6 * time.Second,
+		tempoLimiteFalha:   15 * time.Second,
 		canalFalha:         make(chan string, 10),
 		pararCh:            make(chan struct{}),
 	}, nil
