@@ -81,6 +81,7 @@ func (md *MutexDistribuido) SolicitarAcesso(recursoID, requisicaoID string) (boo
 	// Solicita permissão dos vizinhos
 	aprovacoes, totalAtivos := md.solicitarPermissoes(recursoID)
 
+	//Votação para alocar o drone
 	// Inclui o próprio broker para maioria simples
 	totalParticipantes := totalAtivos + 1   // Todos os brokers ativos + este broker
 	maioria := (totalParticipantes / 2) + 1 // (total / 2) + 1 = maioria simples

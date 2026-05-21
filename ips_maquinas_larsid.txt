@@ -270,3 +270,15 @@ ladica02 (172.16.201.2)	broker-2	9010/9011/9012	drone-03, drone-04	sensor-03, se
 ladica03 (172.16.201.3)	broker-3	9020/9021/9022	drone-05, drone-06	sensor-05, sensor-06
 ladica04 (172.16.201.4)	broker-4	9030/9031/9032	drone-07, drone-08	sensor-07, sensor-08
 Execute em ordem: 1 → 2 → 3 → 4 → 5 e me mostre os resultados! 🚀
+
+
+🔧 OBTÉM ARQUIVO QUE LISTA TODO O CONTEÚDO DE TODOS OS ARQUIVOS DO SISTEMA 
+find . -type f \
+  -not -path "*/node_modules/*" \
+  -not -path "*/.git/*" \
+  -not -path "*/dist/*" \
+  -not -path "*/build/*" \
+  -not -path "*/__pycache__/*" \
+  -not -name "*.png" -not -name "*.jpg" -not -name "*.ico" \
+  -not -name "*.pdf" -not -name "*.zip" -not -name "*.bin" \
+  -exec echo "===== {} =====" \; -exec cat {} \; > todos_arquivos.txt

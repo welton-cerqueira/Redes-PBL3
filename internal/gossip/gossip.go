@@ -148,6 +148,7 @@ func (pg *ProtocoloGossip) mesclarEstado(novoEstado *tipos.EstadoBroker) {
 		}
 	}
 
+	pg.estado.LiderAtual = novoEstado.LiderAtual
 	pg.estado.Versao = novoEstado.Versao
 	pg.estado.UltimaAtualizacao = time.Now()
 

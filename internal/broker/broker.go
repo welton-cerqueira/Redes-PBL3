@@ -855,35 +855,33 @@ func (b *Broker) replicarFilaParaVizinhos() {
 		return
 	}
 
-	dadosFila, err := b.filaDistribuida.SerializarFila()
-	if err != nil {
-		utils.RegistrarLog("ERRO", "[BROKER-%s] Erro ao serializar fila para replicação: %v", b.id, err)
-		return
-	}
+	// Pega os objetos puros (ponteiros), sem serializar ainda
+	itensFila := b.filaDistribuida.ObterTodasRequisicoes()
 
 	for id, vizinho := range b.estado.ObterVizinhosAtivos() {
 		if id == b.id {
 			continue
 		}
-		go func(vizinhoID, endereco string, dados []byte) {
+		go func(vizinhoID, endereco string, dados []*tipos.Requisicao) {
 			conn, err := net.DialTimeout("tcp", endereco, 2*time.Second)
 			if err != nil {
 				return
 			}
 			defer conn.Close()
+			conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 
 			mensagem := tipos.Mensagem{
 				Tipo:         "REPLICAR_FILA",
 				OrigemID:     b.id,
 				DestinoID:    vizinhoID,
-				Dados:        dados,
+				Dados:        dados, // Passa a lista pura para a interface{}
 				CarimboTempo: time.Now(),
 			}
 			if err := json.NewEncoder(conn).Encode(mensagem); err != nil {
 				utils.RegistrarLog("ERRO", "[BROKER-%s] Erro ao replicar fila para %s: %v",
 					b.id, vizinhoID, err)
 			}
-		}(id, vizinho.EnderecoTCP, dadosFila)
+		}(id, vizinho.EnderecoTCP, itensFila)
 	}
 }
 

@@ -200,11 +200,11 @@ func (ab *AlgoritmoBully) anunciarVitoria() {
 	}
 }
 
-// ProcessarMensagemEleicao processa mensagens relacionadas Ã  eleiÃ§Ã£o
+// ProcessarMensagemEleicao processa mensagens relacionadas à eleição
 func (ab *AlgoritmoBully) ProcessarMensagemEleicao(msg tipos.Mensagem) {
 	switch msg.Tipo {
 	case "ELEICAO":
-		// Responde Ã  mensagem de eleiÃ§Ã£o
+		// Responde à  mensagem de eleição
 		resposta := tipos.Mensagem{
 			Tipo:         "RESPOSTA_ELEICAO",
 			OrigemID:     ab.idBroker,
@@ -220,7 +220,7 @@ func (ab *AlgoritmoBully) ProcessarMensagemEleicao(msg tipos.Mensagem) {
 			ab.enviarMensagemTCP(vizinho.EnderecoTCP, resposta)
 		}
 
-		// Inicia prÃ³pria eleiÃ§Ã£o se nÃ£o estiver em uma
+		// Inicia eleiÃ§Ã£o se nÃ£o estiver em uma
 		ab.mutex.RLock()
 		emEleicao := ab.emEleicao
 		ab.mutex.RUnlock()
