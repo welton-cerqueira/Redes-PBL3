@@ -63,14 +63,14 @@ func main() {
 	}
 
 	// Cria broker
-	broker, err := broker.NovoBrokerComLedger(*id, *portaTCP, *portaUDP, *portaCTRL, listaVizinhos, *dronesConfig, ledgerConfig)
+	brk, err := broker.NovoBrokerComLedger(*id, *portaTCP, *portaUDP, *portaCTRL, listaVizinhos, *dronesConfig, ledgerConfig)
 	if err != nil {
 		utils.RegistrarLog("ERRO", "Falha ao criar broker: %v", err)
 		os.Exit(1)
 	}
 
 	// Inicia broker
-	if err := broker.Iniciar(); err != nil {
+	if err := brk.Iniciar(); err != nil {
 		utils.RegistrarLog("ERRO", "Falha ao iniciar broker: %v", err)
 		os.Exit(1)
 	}
@@ -81,7 +81,7 @@ func main() {
 	<-sigChan
 
 	utils.RegistrarLog("INFO", "Encerrando broker...")
-	broker.Parar()
+	brk.Parar()
 }
 
 // parsePeers converte string de peers no formato "ID,TCP,UDP;ID,TCP,UDP;..."
