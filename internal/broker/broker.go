@@ -10,6 +10,7 @@ import (
 	"sistema-distribuido-brokers/internal/exclusao_mutua"
 	"sistema-distribuido-brokers/internal/fila"
 	"sistema-distribuido-brokers/internal/gossip"
+	"sistema-distribuido-brokers/pkg/ledger"
 	"sistema-distribuido-brokers/pkg/tipos"
 	"sistema-distribuido-brokers/pkg/utils"
 	"strings"
@@ -666,15 +667,56 @@ func (b *Broker) executarRequisicao(req *tipos.Requisicao) {
 
 // processarAlocacaoDrone tenta alocar um drone disponível para a requisição,
 // usando o mutex distribuído para garantir exclusão mútua entre brokers
+// MODIFICADO: Inclui validação de créditos via ledger
 func (b *Broker) processarAlocacaoDrone(req *tipos.Requisicao) {
+	// 🔴 NOVO: Se ledger está habilitado, valida créditos primeiro
+	if b.ledgerEnabled && b.tokenManager != nil {
+		companyID := req.BrokerOrigem
+		requiredCredits := ledger.CostStandardMission
+
+		// Aumenta custo para missões críticas
+		if req.GrauCriticidade >= 4 {
+			requiredCredits = ledger.CostEmergencyMission
+		}
+		req.CreditsCost = requiredCredits
+
+		hasCredits, err := b.tokenManager.HasEnoughCredits(companyID, requiredCredits)
+		if err != nil {
+			utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao verificar créditos para %s: %v", b.id, companyID, err)
+			req.Estado = "pendente"
+			req.Tentativas++
+			b.filaDistribuida.AdicionarRequisicao(req)
+			return
+		}
+
+		if !hasCredits {
+			utils.RegistrarLog("AVISO", "[BROKER-%s] Empresa %s sem créditos suficientes (necessário=%d)", b.id, companyID, requiredCredits)
+			req.Estado = "falhou"
+			return
+		}
+
+		// Reserva créditos (escrow)
+		success, motivo := b.tokenManager.ReserveCredits(companyID, req.ID, requiredCredits)
+		if !success {
+			utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao reservar créditos para %s: %s", b.id, companyID, motivo)
+			req.Estado = "pendente"
+			req.Tentativas++
+			b.filaDistribuida.AdicionarRequisicao(req)
+			return
+		}
+		req.EscrowID = req.ID
+		utils.RegistrarLog("INFO", "[BROKER-%s] Créditos reservados para missão %s (empresa=%s, custo=%d)",
+			b.id, req.ID, companyID, requiredCredits)
+	}
+
+	// Código existente (não modificar)
 	if strings.TrimSpace(req.RecursoID) == "" {
 		req.RecursoID = b.proximoDroneDisponivel()
-		utils.RegistrarLog("DEBUG", "Drone escolhido automaticamente: %s", req.RecursoID)
+		utils.RegistrarLog("DEBUG", "[BROKER-%s] Drone escolhido automaticamente: %s", b.id, req.RecursoID)
 	}
 
 	if req.RecursoID == "" {
-		utils.RegistrarLog("AVISO", "Nenhum drone disponível para req %s (tentativa %d)",
-			req.ID, req.Tentativas)
+		utils.RegistrarLog("AVISO", "[BROKER-%s] Nenhum drone disponível para req %s (tentativa %d)", b.id, req.ID, req.Tentativas)
 		req.Estado = "pendente"
 		req.Tentativas++
 		req.CarimboTempo = time.Now()
@@ -688,10 +730,10 @@ func (b *Broker) processarAlocacaoDrone(req *tipos.Requisicao) {
 
 	aprovado, err := b.mutexDistribuido.SolicitarAcesso(req.RecursoID, req.ID)
 	if err != nil {
-		utils.RegistrarLog("ERRO", "Erro ao solicitar lock para %s: %v", req.RecursoID, err)
+		utils.RegistrarLog("ERRO", "[BROKER-%s] Erro ao solicitar lock para %s: %v", b.id, req.RecursoID, err)
 	}
 	if !aprovado {
-		utils.RegistrarLog("AVISO", "Lock negado para %s, req %s volta à fila", req.RecursoID, req.ID)
+		utils.RegistrarLog("AVISO", "[BROKER-%s] Lock negado para %s, req %s volta à fila", b.id, req.RecursoID, req.ID)
 		req.Estado = "pendente"
 		req.Tentativas++
 		req.CarimboTempo = time.Now()
@@ -701,7 +743,7 @@ func (b *Broker) processarAlocacaoDrone(req *tipos.Requisicao) {
 
 	recurso, sucesso, motivo := b.gerenciadorRecursos.TentarAlocarRecurso(req.RecursoID, req.ID, b.id)
 	if !sucesso {
-		utils.RegistrarLog("ERRO", "Falha ao alocar %s: %s", req.RecursoID, motivo)
+		utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao alocar %s: %s", b.id, req.RecursoID, motivo)
 		b.mutexDistribuido.LiberarAcesso(req.RecursoID)
 		req.Estado = "pendente"
 		req.Tentativas++
@@ -711,7 +753,7 @@ func (b *Broker) processarAlocacaoDrone(req *tipos.Requisicao) {
 	}
 
 	if err := b.comandarDrone(recurso.ID, req); err != nil {
-		utils.RegistrarLog("ERRO", "Falha ao comandar drone %s: %v", recurso.ID, err)
+		utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao comandar drone %s: %v", b.id, recurso.ID, err)
 		b.gerenciadorRecursos.LiberarRecurso(req.RecursoID)
 		b.mutexDistribuido.LiberarAcesso(req.RecursoID)
 		req.Estado = "pendente"
@@ -729,7 +771,6 @@ func (b *Broker) processarAlocacaoDrone(req *tipos.Requisicao) {
 	utils.RegistrarLog("INFO", "[BROKER-%s] drone %s alocado para req %s (prioridade %d)",
 		b.id, recurso.ID, req.ID, req.Prioridade)
 
-	// Segurança: libera o lock se a requisição tentou muitas vezes
 	if req.Tentativas > 10 {
 		b.mutexDistribuido.LiberarAcesso(req.RecursoID)
 	}
@@ -1199,6 +1240,7 @@ func (b *Broker) comandarDrone(droneID string, req *tipos.Requisicao) error {
 }
 
 // tratarDroneDisponivel processa a notificação de que um drone completou a missão
+// MODIFICADO: Inclui registro do laudo na ledger
 func (b *Broker) tratarDroneDisponivel(msg tipos.Mensagem) {
 	droneID, ok := extrairStringMapa(msg.Dados, "drone_id")
 	if !ok {
@@ -1206,6 +1248,68 @@ func (b *Broker) tratarDroneDisponivel(msg tipos.Mensagem) {
 		return
 	}
 
+	requisicaoID, _ := extrairStringMapa(msg.Dados, "requisicao_id")
+
+	// Busca a requisição para obter dados do laudo
+	var req *tipos.Requisicao
+	if requisicaoID != "" {
+		req = b.filaDistribuida.ObterPorID(requisicaoID)
+	}
+
+	// 🔴 NOVO: Extrai dados do laudo da mensagem (enviados pelo drone)
+	laudoHash, _ := extrairStringMapa(msg.Dados, "laudo_hash")
+	laudoCID, _ := extrairStringMapa(msg.Dados, "laudo_cid")
+	signature, _ := extrairStringMapa(msg.Dados, "signature")
+	publicKey, _ := extrairStringMapa(msg.Dados, "public_key")
+
+	// 🔴 NOVO: Se ledger está habilitado, registra o laudo
+	if b.ledgerEnabled && b.ledgerClient != nil && req != nil {
+		// Preenche os dados do laudo na requisição
+		if laudoHash != "" {
+			req.LaudoHash = laudoHash
+		}
+		if laudoCID != "" {
+			req.LaudoCID = laudoCID
+		}
+		if signature != "" {
+			req.Signature = signature
+		}
+		if publicKey != "" {
+			req.PublicKey = publicKey
+		}
+
+		missionLog := &ledger.MissionLog{
+			MissionID: req.ID,
+			DroneID:   droneID,
+			BrokerID:  b.id,
+			CompanyID: req.BrokerOrigem,
+			LaudoHash: req.LaudoHash,
+			LaudoCID:  req.LaudoCID,
+			Signature: req.Signature,
+			PublicKey: req.PublicKey,
+			Status:    "success",
+			EventType: req.Tipo,
+			Cost:      req.CreditsCost,
+		}
+
+		if err := b.ledgerClient.RegisterMissionLog(missionLog); err != nil {
+			utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao registrar laudo no ledger: %v", b.id, err)
+		} else {
+			utils.RegistrarLog("INFO", "[BROKER-%s] Laudo da missão %s registrado na blockchain", b.id, req.ID)
+		}
+
+		// 🔴 NOVO: Libera os créditos (escrow)
+		if b.tokenManager != nil && req.CreditsCost > 0 {
+			if err := b.tokenManager.ReleaseCredits(req.ID, b.id, req.LaudoHash, req.LaudoCID); err != nil {
+				utils.RegistrarLog("ERRO", "[BROKER-%s] Falha ao liberar escrow: %v", b.id, err)
+			} else {
+				utils.RegistrarLog("INFO", "[BROKER-%s] Créditos liberados para operador %s (missão %s, custo=%d)",
+					b.id, b.id, req.ID, req.CreditsCost)
+			}
+		}
+	}
+
+	// Código existente (não modificar)
 	b.mutexDistribuido.LiberarAcesso(droneID)
 	utils.RegistrarLog("INFO", "[BROKER-%s] %s voltou para DISPONIVEL", b.id, droneID)
 }
