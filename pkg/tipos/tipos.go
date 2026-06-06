@@ -1,4 +1,5 @@
-﻿package tipos
+﻿// pkg/tipos/tipos.go
+package tipos
 
 import (
 	"fmt"
@@ -15,7 +16,6 @@ type Mensagem struct {
 	NumeroSequencia uint64      `json:"numero_sequencia"`
 }
 
-// EstadoBroker representa o estado de um broker
 // EstadoBroker representa o estado de um broker
 type EstadoBroker struct {
 	ID                string             `json:"id"`
@@ -49,6 +49,10 @@ type Recurso struct {
 	Versao         uint64    `json:"versao"`
 }
 
+// ============================================================================
+// REQUISICAO - MODIFICADO COM CAMPOS PARA LEDGER
+// ============================================================================
+
 // Requisicao representa uma requisicao no sistema
 type Requisicao struct {
 	ID               string        `json:"id"`
@@ -64,6 +68,37 @@ type Requisicao struct {
 	TimestampEntrada time.Time     `json:"timestamp_entrada"` // Quando entrou na fila
 	SetorID          string        `json:"setor_id"`          // Setor que fez a requisição
 	Timeout          time.Duration `json:"timeout"`           // Tempo máximo para atendimento
+
+	// 🔴 NOVO: Campos para integração com Blockchain/Ledger
+	EscrowID    string `json:"escrow_id,omitempty"`    // ID do escrow na blockchain
+	LaudoHash   string `json:"laudo_hash,omitempty"`   // Hash do laudo da missão (Merkle root)
+	LaudoCID    string `json:"laudo_cid,omitempty"`    // IPFS CID do laudo completo
+	Signature   string `json:"signature,omitempty"`    // Assinatura digital do drone
+	PublicKey   string `json:"public_key,omitempty"`   // Chave pública do drone
+	CreditsCost int    `json:"credits_cost,omitempty"` // Créditos gastos na missão
+	LedgerTXID  string `json:"ledger_txid,omitempty"`  // Transaction ID da blockchain
+}
+
+// ============================================================================
+// NOVOS TIPOS PARA DRONE MISSION
+// ============================================================================
+
+// DroneMission representa uma missão atribuída a um drone (para rastreamento)
+type DroneMission struct {
+	MissionID    string    `json:"missionId"`
+	DroneID      string    `json:"droneId"`
+	BrokerID     string    `json:"brokerId"`
+	CompanyID    string    `json:"companyId"`
+	StartTime    time.Time `json:"startTime"`
+	EndTime      time.Time `json:"endTime"`
+	Status       string    `json:"status"` // pending, in_progress, completed, failed
+	LaudoHash    string    `json:"laudoHash"`
+	LaudoCID     string    `json:"laudoCid"`
+	Signature    string    `json:"signature"`
+	PublicKey    string    `json:"publicKey"`
+	EventType    string    `json:"eventType"`
+	CreditsSpent int       `json:"creditsSpent"`
+	LedgerTXID   string    `json:"ledgerTxId"`
 }
 
 // Resposta representa uma resposta a uma requisicao
@@ -89,7 +124,7 @@ type SensorData struct {
 type Sensor struct {
 	ID            string    `json:"id"`
 	SetorID       string    `json:"setor_id"`
-	EnderecoTCP   string    `json:"endereco_tcp"` // usado para callback se necessÃ¡rio
+	EnderecoTCP   string    `json:"endereco_tcp"` // usado para callback se necessário
 	Tipo          string    `json:"tipo"`         // radar, boia, etc
 	Localizacao   string    `json:"localizacao"`
 	Conectado     bool      `json:"conectado"`
@@ -125,6 +160,10 @@ type BrokerInfo struct {
 	PortaControle string `json:"porta_controle"`
 }
 
+// ============================================================================
+// FUNÇÕES AUXILIARES (existentes e novas)
+// ============================================================================
+
 // NovaRequisicao cria uma nova requisição com valores padrão
 func NovaRequisicao(tipo, brokerOrigem, recursoID string, prioridade, criticidade int) *Requisicao {
 	return &Requisicao{
@@ -139,5 +178,59 @@ func NovaRequisicao(tipo, brokerOrigem, recursoID string, prioridade, criticidad
 		Tentativas:       0,
 		TimestampEntrada: time.Now(),
 		Timeout:          30 * time.Second,
+		// 🔴 Campos ledger inicializados com zero/empty
+		CreditsCost: 0,
 	}
+}
+
+// 🔴 NOVA FUNÇÃO: NovaRequisicaoComLedger cria requisição com custo de créditos
+func NovaRequisicaoComLedger(tipo, brokerOrigem, recursoID string, prioridade, criticidade, creditsCost int) *Requisicao {
+	req := NovaRequisicao(tipo, brokerOrigem, recursoID, prioridade, criticidade)
+	req.CreditsCost = creditsCost
+	return req
+}
+
+// 🔴 NOVA FUNÇÃO: SetLedgerData adiciona dados do ledger à requisição
+func (r *Requisicao) SetLedgerData(escrowID, laudoHash, laudoCID, signature, publicKey string) {
+	r.EscrowID = escrowID
+	r.LaudoHash = laudoHash
+	r.LaudoCID = laudoCID
+	r.Signature = signature
+	r.PublicKey = publicKey
+}
+
+// 🔴 NOVA FUNÇÃO: HasLedgerData verifica se a requisição tem dados de ledger
+func (r *Requisicao) HasLedgerData() bool {
+	return r.EscrowID != "" || r.LaudoHash != "" || r.Signature != ""
+}
+
+// 🔴 NOVA FUNÇÃO: NewDroneMission cria uma nova missão de drone
+func NewDroneMission(missionID, droneID, brokerID, companyID string) *DroneMission {
+	return &DroneMission{
+		MissionID: missionID,
+		DroneID:   droneID,
+		BrokerID:  brokerID,
+		CompanyID: companyID,
+		StartTime: time.Now(),
+		Status:    "pending",
+	}
+}
+
+// 🔴 NOVA FUNÇÃO: CompleteMission marca a missão como concluída
+func (dm *DroneMission) CompleteMission(laudoHash, laudoCID, signature, publicKey, eventType string, creditsSpent int) {
+	dm.EndTime = time.Now()
+	dm.Status = "completed"
+	dm.LaudoHash = laudoHash
+	dm.LaudoCID = laudoCID
+	dm.Signature = signature
+	dm.PublicKey = publicKey
+	dm.EventType = eventType
+	dm.CreditsSpent = creditsSpent
+}
+
+// 🔴 NOVA FUNÇÃO: FailMission marca a missão como falha
+func (dm *DroneMission) FailMission(reason string) {
+	dm.EndTime = time.Now()
+	dm.Status = "failed"
+	dm.EventType = reason
 }
