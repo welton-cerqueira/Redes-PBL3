@@ -417,7 +417,7 @@ func (tm *TokenManager) syncPendingTransactions() {
 		case "release":
 			err = tm.ledgerClient.ReleaseEscrow(tx.MissionID, tm.brokerID, "", "")
 		case "transfer":
-			err = tm.ledgerClient.Transfer(tx.Company, "", tx.Amount)
+			err = tm.ledgerClient.Transfer(tx.Company, "system", tx.Amount)
 		}
 
 		if err == nil {
