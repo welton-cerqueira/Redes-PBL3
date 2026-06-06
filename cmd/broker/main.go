@@ -19,6 +19,10 @@ func main() {
 	portaCTRL := flag.String("porta-ctrl", os.Getenv("PORT_SENSORES"), "Porta dos Sensores") // Porta para receber dados dos sensores (ex: ":9002")
 	dronesConfig := flag.String("drones", "", "Configuração dos drones (JSON)")              //  Configuração JSON dos drones disponíveis
 	peers := flag.String("peers", os.Getenv("PEERS"), "Lista de peers (ID,TCP,UDP;...)")     // Lista dos outros brokers no formato "ID,TCP,UDP;ID,TCP,UDP;..."
+	// NOVOS PARÂMETROS PARA LEDGER
+	enableLedger := flag.Bool("enable-ledger", false, "Habilitar integração com blockchain")
+	ledgerMock := flag.Bool("ledger-mock", true, "Usar modo mock do ledger (sem blockchain real)")
+	ledgerGateway := flag.String("ledger-gateway", "http://localhost:8080", "URL do gateway Fabric")
 	flag.Parse()
 
 	// Validação
@@ -40,8 +44,26 @@ func main() {
 		}
 	}
 
+	var ledgerConfig *broker.LedgerIntegrationConfig
+	if *enableLedger {
+		ledgerConfig = &broker.LedgerIntegrationConfig{
+			Enabled:     true,
+			MockMode:    *ledgerMock,
+			GatewayURL:  *ledgerGateway,
+			ChannelName: "ormuz-channel",
+			TokenCC:     "token-contract",
+			MissionCC:   "mission-contract",
+		}
+		utils.RegistrarLog("INFO", "Ledger integration ENABLED (mock=%v, gateway=%s)", *ledgerMock, *ledgerGateway)
+	} else {
+		ledgerConfig = &broker.LedgerIntegrationConfig{
+			Enabled: false,
+		}
+		utils.RegistrarLog("INFO", "Ledger integration DISABLED")
+	}
+
 	// Cria broker
-	broker, err := broker.NovoBroker(*id, *portaTCP, *portaUDP, *portaCTRL, listaVizinhos, *dronesConfig)
+	broker, err := broker.NovoBrokerComLedger(*id, *portaTCP, *portaUDP, *portaCTRL, listaVizinhos, *dronesConfig, ledgerConfig)
 	if err != nil {
 		utils.RegistrarLog("ERRO", "Falha ao criar broker: %v", err)
 		os.Exit(1)

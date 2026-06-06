@@ -10,6 +10,7 @@
 *.exe
 # Go binaries
 /broker
+/documentar.sh
 # Vendor directory
 /vendor/
 *.tar.gz
