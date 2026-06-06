@@ -1,0 +1,258 @@
+# config/configtx.yaml
+# Configuração do canal e consórcio para Hyperledger Fabric
+# Consórcio do Estreito de Ormuz - 4 organizações (brokers)
+
+---
+################################################################################
+#  PERFIS - Definição de configurações para diferentes cenários
+################################################################################
+
+Profiles:
+  # Perfil do consórcio completo (3 orderers + 4 organizações)
+  OrmuzConsortiumGenesis:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+      Capabilities:
+        <<: *OrdererCapabilities
+    Consortiums:
+      OrmuzConsortium:
+        Organizations:
+          - *OrmuzOrg1
+          - *OrmuzOrg2
+          - *OrmuzOrg3
+          - *OrmuzOrg4
+  
+  # Perfil do canal principal de transações
+  OrmuzChannel:
+    Consortium: OrmuzConsortium
+    <<: *ChannelDefaults
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *OrmuzOrg1
+        - *OrmuzOrg2
+        - *OrmuzOrg3
+        - *OrmuzOrg4
+      Capabilities:
+        <<: *ApplicationCapabilities
+
+################################################################################
+#  CONFIGURAÇÕES PADRÃO
+################################################################################
+
+# Configurações padrão do canal
+ChannelDefaults:
+  Capabilities:
+    V2_0: true
+
+# Configurações padrão do orderer
+OrdererDefaults:
+  # Tipo de consenso: etcdraft (Raft) para alta disponibilidade
+  OrdererType: etcdraft
+  Addresses:
+    - orderer.ormuz.com:7050
+  
+  # Timeouts do orderer
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  
+  # Consenso etcdraft (Raft)
+  EtcdRaft:
+    Consenters:
+      - Host: orderer0.ormuz.com
+        Port: 7050
+        ClientTLSCert: /etc/hyperledger/fabric/organizations/ordererOrganizations/ormuz.com/orderers/orderer0.ormuz.com/tls/server.crt
+        ServerTLSCert: /etc/hyperledger/fabric/organizations/ordererOrganizations/ormuz.com/orderers/orderer0.ormuz.com/tls/server.crt
+  
+  # Organizações do orderer
+  Organizations:
+    - *OrdererOrg
+  
+  # Capacidades do orderer
+  Capabilities:
+    V2_0: true
+
+# Configurações padrão da aplicação
+ApplicationDefaults:
+  ACLs: &ACLsDefault
+    # Políticas de acesso padrão
+    lscc/ChaincodeExists: /Channel/Application/Readers
+    lscc/GetDeploymentSpec: /Channel/Application/Readers
+    lscc/GetChaincodeDefinition: /Channel/Application/Readers
+    qscc/GetChainInfo: /Channel/Application/Readers
+    qscc/GetBlockByNumber: /Channel/Application/Readers
+    qscc/GetBlockByTxID: /Channel/Application/Readers
+    qscc/GetTransactionByID: /Channel/Application/Readers
+    cscc/GetConfigBlock: /Channel/Application/Readers
+    peer/Propose: /Channel/Application/Writers
+    peer/ChaincodeToChaincode: /Channel/Application/Writers
+    event/Block: /Channel/Application/Readers
+    event/FilteredBlock: /Channel/Application/Readers
+  
+  Capabilities:
+    V2_0: true
+
+################################################################################
+#  ORGANIZAÇÕES
+################################################################################
+
+# Organização do Orderer
+OrdererOrg: &OrdererOrg
+  Name: OrdererOrg
+  ID: OrdererMSP
+  MSPDir: /etc/hyperledger/fabric/organizations/ordererOrganizations/ormuz.com/msp
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrdererMSP.member')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrdererMSP.admin')"
+
+# ============================================================================
+# ORGANIZAÇÕES DO CONSÓRCIO (4 Brokers)
+# ============================================================================
+
+# Organização 1: Broker Norte (broker-1)
+OrmuzOrg1: &OrmuzOrg1
+  Name: OrmuzOrg1
+  ID: OrmuzOrg1MSP
+  MSPDir: /etc/hyperledger/fabric/organizations/peerOrganizations/org1.ormuz.com/msp
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg1MSP.admin', 'OrmuzOrg1MSP.peer', 'OrmuzOrg1MSP.client')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg1MSP.admin', 'OrmuzOrg1MSP.client')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrmuzOrg1MSP.admin')"
+    Endorsement:
+      Type: Signature
+      Rule: "OR('OrmuzOrg1MSP.peer')"
+  
+  # Peer âncora para descoberta entre organizações
+  AnchorPeers:
+    - Host: peer0.org1.ormuz.com
+      Port: 7051
+  
+  # Certificados da organização
+  CertificateAuthorities:
+    - ca.org1.ormuz.com
+  
+  # Ordem de prioridade (baseado no número do broker)
+  OrdererEndpoints:
+    - orderer.ormuz.com:7050
+
+# Organização 2: Broker Sul (broker-2)
+OrmuzOrg2: &OrmuzOrg2
+  Name: OrmuzOrg2
+  ID: OrmuzOrg2MSP
+  MSPDir: /etc/hyperledger/fabric/organizations/peerOrganizations/org2.ormuz.com/msp
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg2MSP.admin', 'OrmuzOrg2MSP.peer', 'OrmuzOrg2MSP.client')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg2MSP.admin', 'OrmuzOrg2MSP.client')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrmuzOrg2MSP.admin')"
+    Endorsement:
+      Type: Signature
+      Rule: "OR('OrmuzOrg2MSP.peer')"
+  
+  AnchorPeers:
+    - Host: peer0.org2.ormuz.com
+      Port: 7051
+  
+  CertificateAuthorities:
+    - ca.org2.ormuz.com
+  
+  OrdererEndpoints:
+    - orderer.ormuz.com:7050
+
+# Organização 3: Broker Leste (broker-3)
+OrmuzOrg3: &OrmuzOrg3
+  Name: OrmuzOrg3
+  ID: OrmuzOrg3MSP
+  MSPDir: /etc/hyperledger/fabric/organizations/peerOrganizations/org3.ormuz.com/msp
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg3MSP.admin', 'OrmuzOrg3MSP.peer', 'OrmuzOrg3MSP.client')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg3MSP.admin', 'OrmuzOrg3MSP.client')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrmuzOrg3MSP.admin')"
+    Endorsement:
+      Type: Signature
+      Rule: "OR('OrmuzOrg3MSP.peer')"
+  
+  AnchorPeers:
+    - Host: peer0.org3.ormuz.com
+      Port: 7051
+  
+  CertificateAuthorities:
+    - ca.org3.ormuz.com
+  
+  OrdererEndpoints:
+    - orderer.ormuz.com:7050
+
+# Organização 4: Broker Oeste (broker-4)
+OrmuzOrg4: &OrmuzOrg4
+  Name: OrmuzOrg4
+  ID: OrmuzOrg4MSP
+  MSPDir: /etc/hyperledger/fabric/organizations/peerOrganizations/org4.ormuz.com/msp
+  Policies:
+    Readers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg4MSP.admin', 'OrmuzOrg4MSP.peer', 'OrmuzOrg4MSP.client')"
+    Writers:
+      Type: Signature
+      Rule: "OR('OrmuzOrg4MSP.admin', 'OrmuzOrg4MSP.client')"
+    Admins:
+      Type: Signature
+      Rule: "OR('OrmuzOrg4MSP.admin')"
+    Endorsement:
+      Type: Signature
+      Rule: "OR('OrmuzOrg4MSP.peer')"
+  
+  AnchorPeers:
+    - Host: peer0.org4.ormuz.com
+      Port: 7051
+  
+  CertificateAuthorities:
+    - ca.org4.ormuz.com
+  
+  OrdererEndpoints:
+    - orderer.ormuz.com:7050
+
+################################################################################
+#  CAPACIDADES
+################################################################################
+
+# Capacidades do canal
+ChannelCapabilities:
+  V2_0: true
+
+# Capacidades do orderer
+OrdererCapabilities:
+  V2_0: true
+
+# Capacidades da aplicação
+ApplicationCapabilities:
+  V2_0: true

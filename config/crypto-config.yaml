@@ -1,0 +1,150 @@
+# config/crypto-config.yaml
+# Configuração de certificados e chaves para Hyperledger Fabric
+# Consórcio do Estreito de Ormuz - 4 organizações + orderer
+
+################################################################################
+#  ORDEM (ORDERER ORGANIZATION)
+################################################################################
+OrdererOrgs:
+  # Nome da organização do orderer
+  - Name: OrdererOrg
+    # Domínio da organização
+    Domain: ormuz.com
+    # Sub-dominio para o nó orderer
+    Specs:
+      - Hostname: orderer
+        # Common Name para o certificado
+        CommonName: orderer.ormuz.com
+    # Habilitar geração de certificados TLS
+    EnableNodeOUs:
+      - NodeOUMode: true
+
+################################################################################
+#  ORGANIZAÇÕES DO CONSÓRCIO (PEERS)
+################################################################################
+PeerOrgs:
+  # ============================================================================
+  # ORGANIZAÇÃO 1: Broker Norte (broker-1)
+  # ============================================================================
+  - Name: OrmuzOrg1
+    Domain: org1.ormuz.com
+    # Habilitar NodeOUs (organizational units)
+    EnableNodeOUs: true
+    # Template para geração de peers
+    Template:
+      Count: 1  # Um peer por organização
+      # Opções de início para o peer
+      SANS:
+        - localhost
+        - 127.0.0.1
+        - peer0.org1.ormuz.com
+    # Usuários da organização
+    Users:
+      Count: 1  # Um usuário admin
+    # Especificações adicionais do peer
+    Specs:
+      - Hostname: peer0
+        CommonName: peer0.org1.ormuz.com
+    # Certificados TLS
+    CA:
+      Hostname: ca.org1.ormuz.com
+      Country: BR
+      Province: Paraná
+      Locality: Curitiba
+      OrganizationalUnit: Blockchain
+
+  # ============================================================================
+  # ORGANIZAÇÃO 2: Broker Sul (broker-2)
+  # ============================================================================
+  - Name: OrmuzOrg2
+    Domain: org2.ormuz.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+        - peer0.org2.ormuz.com
+    Users:
+      Count: 1
+    Specs:
+      - Hostname: peer0
+        CommonName: peer0.org2.ormuz.com
+    CA:
+      Hostname: ca.org2.ormuz.com
+      Country: BR
+      Province: Paraná
+      Locality: Curitiba
+      OrganizationalUnit: Blockchain
+
+  # ============================================================================
+  # ORGANIZAÇÃO 3: Broker Leste (broker-3)
+  # ============================================================================
+  - Name: OrmuzOrg3
+    Domain: org3.ormuz.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+        - peer0.org3.ormuz.com
+    Users:
+      Count: 1
+    Specs:
+      - Hostname: peer0
+        CommonName: peer0.org3.ormuz.com
+    CA:
+      Hostname: ca.org3.ormuz.com
+      Country: BR
+      Province: Paraná
+      Locality: Curitiba
+      OrganizationalUnit: Blockchain
+
+  # ============================================================================
+  # ORGANIZAÇÃO 4: Broker Oeste (broker-4)
+  # ============================================================================
+  - Name: OrmuzOrg4
+    Domain: org4.ormuz.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+        - peer0.org4.ormuz.com
+    Users:
+      Count: 1
+    Specs:
+      - Hostname: peer0
+        CommonName: peer0.org4.ormuz.com
+    CA:
+      Hostname: ca.org4.ormuz.com
+      Country: BR
+      Province: Paraná
+      Locality: Curitiba
+      OrganizationalUnit: Blockchain
+
+################################################################################
+#  CONFIGURAÇÕES GLOBAIS
+################################################################################
+
+# Diretório base para saída dos certificados
+# (será substituído pelo caminho no docker-compose)
+BaseDir: /etc/hyperledger/fabric
+
+# Especificações de TLS
+TLS:
+  Enabled: true
+
+# Especificações de certificados
+CertificateSpecs:
+  - OrganizationalUnit: "Blockchain"
+  - Country: "BR"
+  - Province: "Paraná"
+  - Locality: "Curitiba"
+
+# Especificações de chaves
+KeySpecs:
+  Algorithm: "ecdsa"
+  Curve: "prime256v1"
