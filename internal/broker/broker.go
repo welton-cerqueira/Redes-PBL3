@@ -17,6 +17,16 @@ import (
 	"time"
 )
 
+// LedgerIntegrationConfig configuração da integração com blockchain
+type LedgerIntegrationConfig struct {
+	Enabled     bool
+	MockMode    bool
+	GatewayURL  string
+	ChannelName string
+	TokenCC     string
+	MissionCC   string
+}
+
 // Broker representa um broker no sistema distribuído
 type Broker struct {
 	id                    string
@@ -37,11 +47,14 @@ type Broker struct {
 	executando            bool
 	mutex                 sync.RWMutex
 	canalControle         chan struct{}
-
 	// Controle de requisições para garantir idempotência
 	requisicoesEmAndamento map[string]string // requisicaoID -> recursoID alocado
 	requisicoesProcessadas map[string]bool   // requisicaoID -> foi concluída com sucesso
 	requisicoesMutex       sync.RWMutex
+	// 🔴 NOVOS CAMPOS PARA LEDGER
+	ledgerClient  *LedgerClient
+	tokenManager  *TokenManager
+	ledgerEnabled bool
 }
 
 // NovoBroker cria uma nova instância de Broker.
@@ -104,6 +117,97 @@ func NovoBroker(id, portaTCP, portaUDP, portaCTRL string, listaVizinhos []string
 	})
 
 	return b, nil
+}
+
+// NovoBrokerComLedger cria um novo broker com suporte a ledger
+func NovoBrokerComLedger(id, portaTCP, portaUDP, portaCTRL string, listaVizinhos []string, dronesConfig string, ledgerCfg *LedgerIntegrationConfig) (*Broker, error) {
+	// Cria broker base
+	estado := NovoGerenciadorEstado(id)
+	estado.CarregarEstado()
+
+	portaSensores := portaTCP
+	if strings.TrimSpace(portaCTRL) != "" && portaCTRL != portaTCP {
+		portaSensores = portaCTRL
+	}
+
+	b := &Broker{
+		id:                     id,
+		portaTCP:               portaTCP,
+		portaUDP:               portaUDP,
+		portaSensores:          portaSensores,
+		estado:                 estado,
+		gerenciadorRecursos:    NovoGerenciadorRecursos(id, estado, dronesConfig),
+		filaDistribuida:        fila.NovaFilaDistribuida(id),
+		droneEndpoints:         parseDrones(dronesConfig),
+		executando:             true,
+		canalControle:          make(chan struct{}),
+		requisicoesProcessadas: make(map[string]bool),
+		requisicoesEmAndamento: make(map[string]string),
+		ledgerEnabled:          ledgerCfg != nil && ledgerCfg.Enabled,
+	}
+
+	// Inicializa ledger se habilitado
+	if b.ledgerEnabled {
+		if err := b.initLedger(ledgerCfg); err != nil {
+			utils.RegistrarLog("AVISO", "Falha ao inicializar ledger: %v, continuando sem ledger", err)
+			b.ledgerEnabled = false
+		}
+	}
+
+	// Inicializa vizinhos (código existente)
+	for i := 0; i+2 < len(listaVizinhos); i += 3 {
+		b.estado.AtualizarVizinho(listaVizinhos[i], listaVizinhos[i+1], listaVizinhos[i+2])
+	}
+
+	vizinhos := b.estado.ObterVizinhosAtivos()
+
+	b.algoritmoEleicao = eleicao.NovaEleicaoBully(id, vizinhos)
+	b.mutexDistribuido = exclusao_mutua.NovoMutexDistribuido(id, vizinhos)
+	b.mutexDistribuido.SetRecursoManager(b.gerenciadorRecursos)
+
+	var err error
+	b.gerenciadorBatimentos, err = gossip.NovoGerenciadorBatimentos(id, vizinhos, portaUDP)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao criar gerenciador de batimentos: %v", err)
+	}
+
+	b.protocoloGossip = gossip.NovoProtocoloGossip(id, estado.ObterEstado(), vizinhos)
+
+	b.gerenciadorBatimentos.SetGossipHandler(func(msg tipos.Mensagem) {
+		b.protocoloGossip.ProcessarMensagemGossip(msg)
+		if estadoRecebido, ok := extrairEstadoGossip(msg); ok {
+			b.gerenciadorRecursos.SincronizarRecursos(estadoRecebido)
+		}
+	})
+
+	return b, nil
+}
+
+// initLedger inicializa os clientes de ledger
+func (b *Broker) initLedger(cfg *LedgerIntegrationConfig) error {
+	// Cria ledger client
+	ledgerClient, err := NewLedgerClient(LedgerConfig{
+		GatewayURL:       cfg.GatewayURL,
+		ChannelName:      cfg.ChannelName,
+		TokenChaincode:   cfg.TokenCC,
+		MissionChaincode: cfg.MissionCC,
+		MockMode:         cfg.MockMode,
+	})
+	if err != nil {
+		return fmt.Errorf("falha ao criar ledger client: %v", err)
+	}
+	b.ledgerClient = ledgerClient
+
+	// Cria token manager
+	tokenManager := NewTokenManager(TokenManagerConfig{
+		BrokerID:     b.id,
+		LedgerClient: ledgerClient,
+		CacheTTL:     30 * time.Second,
+	})
+	b.tokenManager = tokenManager
+
+	utils.RegistrarLog("INFO", "Ledger inicializado com sucesso (mock=%v)", cfg.MockMode)
+	return nil
 }
 
 // Iniciar inicia todos os serviços do broker
@@ -893,7 +997,7 @@ func (b *Broker) obterEnderecoVizinho(id string) string {
 	return ""
 }
 
-// Parar interrompe o broker de forma ordenada, fechando todos os listeners e canais
+// Parar interrompe o broker de forma ordenada
 func (b *Broker) Parar() {
 	b.executando = false
 
@@ -908,6 +1012,14 @@ func (b *Broker) Parar() {
 	b.protocoloGossip.Parar()
 	b.filaDistribuida.Parar()
 	b.estado.SalvarEstado()
+
+	// 🔴 NOVO: Fecha ledger
+	if b.ledgerClient != nil {
+		b.ledgerClient.Close()
+	}
+	if b.tokenManager != nil {
+		b.tokenManager.Stop()
+	}
 
 	close(b.canalControle)
 	utils.RegistrarLog("INFO", "Broker %s parado", b.id)
