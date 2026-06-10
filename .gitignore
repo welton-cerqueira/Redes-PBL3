@@ -1,16 +1,103 @@
-﻿# Go binaries
-/bin/
-# Build directories
-*/build/
-# Compiled Object files
-*.o
-# C++ compiled files
-*.out
-# Executable files
+# === Binários e executáveis ===
+broker
+drone
+sensor
 *.exe
-# Go binaries
-/broker
-/documentar.sh
-# Vendor directory
-/vendor/
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# === Arquivos de teste ===
+*.test
+*.out
+*.prof
+*.cov
+
+# === Dependências ===
+vendor/
+node_modules/
+go.sum
+go.mod.bak
+
+# === IDE/Editores ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.code-workspace
+
+# === Arquivos de build ===
 *.tar.gz
+*.zip
+*.block
+*.pb
+*.tx
+*.json
+crypto-config/
+genesis.block
+channel-artifacts/
+
+# === Chaincode artifacts ===
+chaincode/*/vendor/
+chaincode/*/node_modules/
+chaincode/*/package-lock.json
+
+# === Docker artifacts ===
+docker-compose*.yaml.bak
+.dockerignore
+*.log
+*.pid
+
+# === Fabric específicos ===
+organizations/
+wallet/
+keystore/
+*.cert
+*.key
+*.pem
+
+# === Backup e temp ===
+*.bak
+*.tmp
+*~
+*.log
+/tmp/
+temp/
+
+# === OS específicos ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Scripts gerados ===
+ips_maquinas.txt
+start_broker.sh
+monitor.sh
+distribute_crypto.sh
+
+# === Documentação gerada ===
+estrutura_projeto.txt
+*.html
+*.pdf
+
+# === Arquivos locais de configuração ===
+.env
+.env.local
+.env.*.local
+config/local-*.yaml
+
+# === TLS (desabilitado) ===
+tls/
+*.crt
+*.key
+
+# === Go workspaces ===
+go.work
+go.work.sum
+
+# === Logs dos brokers ===
+/tmp/broker-*.log
+nohup.out

@@ -1,0 +1,52 @@
+---
+Organizations:
+  - &OrdererOrg
+    Name: OrdererOrg
+    ID: OrmuzOrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/ormuz.com/msp
+  - &Org1
+    Name: Org1MSP
+    ID: OrmuzOrg1MSP
+    MSPDir: crypto-config/peerOrganizations/org1.ormuz.com/msp
+    AnchorPeers:
+      - Host: peer0.org1.ormuz.com
+        Port: 7051
+
+Capabilities:
+  Channel: &ChannelCapabilities
+    V2_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_0: true
+
+Application: &ApplicationDefaults
+  Organizations:
+  Capabilities: *ApplicationCapabilities
+
+Orderer: &OrdererDefaults
+  OrdererType: solo
+  Addresses:
+    - orderer.ormuz.com:7050
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Capabilities: *OrdererCapabilities
+
+Channel: &ChannelDefaults
+  Capabilities: *ChannelCapabilities
+
+Profiles:
+  OrmuzChannel:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Org1
