@@ -1,15 +1,122 @@
-﻿networks:
+version: '3.8'
+
+# ============================================================================
+# REDE FABRIC (Blockchain) + BROKERS + DRONES + SENSORES
+# Sistema Distribuído Completo
+# ============================================================================
+
+networks:
+  fabric-net:
+    driver: bridge
   ormuz-net:
     driver: bridge
 
+# ============================================================================
+# HYPERLEDGER FABRIC - BLOCKCHAIN
+# ============================================================================
+
 services:
-  # BROKERS (4 setores)
+  # Orderer - Nó de ordenação
+  orderer.ormuz.com:
+    image: hyperledger/fabric-orderer:latest
+    container_name: orderer.ormuz.com
+    environment:
+      - FABRIC_LOGGING_SPEC=INFO
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_LISTENPORT=7050
+      - ORDERER_GENERAL_LOCALMSPID=OrmuzOrdererMSP
+      - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
+      - ORDERER_GENERAL_TLS_ENABLED=false
+      - ORDERER_CHANNELPARTICIPATION_ENABLED=true
+      - ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:9443
+      - ORDERER_ADMIN_TLS_ENABLED=false
+    volumes:
+      - ./crypto-config/ordererOrganizations/ormuz.com/orderers/orderer.ormuz.com/msp:/var/hyperledger/orderer/msp
+    ports:
+      - "7050:7050"
+      - "9443:9443"
+    networks:
+      - fabric-net
+    restart: unless-stopped
+
+  # Peer da Organização 1
+  peer0.org1.ormuz.com:
+    image: hyperledger/fabric-peer:latest
+    container_name: peer0.org1.ormuz.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - FABRIC_LOGGING_SPEC=INFO
+      - CORE_PEER_ID=peer0.org1.ormuz.com
+      - CORE_PEER_ADDRESS=0.0.0.0:7051
+      - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
+      - CORE_PEER_CHAINCODEADDRESS=0.0.0.0:7052
+      - CORE_PEER_CHAINCODELISTENADDRESS=0.0.0.0:7052
+      - CORE_PEER_GOSSIP_BOOTSTRAP=peer0.org1.ormuz.com:7051
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.org1.ormuz.com:7051
+      - CORE_PEER_LOCALMSPID=OrmuzOrg1MSP
+      - CORE_PEER_TLS_ENABLED=false
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - ./crypto-config/peerOrganizations/org1.ormuz.com/peers/peer0.org1.ormuz.com/msp:/etc/hyperledger/fabric/msp
+    ports:
+      - "7051:7051"
+      - "7052:7052"
+    networks:
+      - fabric-net
+    depends_on:
+      - orderer.ormuz.com
+    restart: unless-stopped
+
+  # Certificate Authority
+  ca.org1.ormuz.com:
+    image: hyperledger/fabric-ca:latest
+    container_name: ca.org1.ormuz.com
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_NAME=ca.org1.ormuz.com
+      - FABRIC_CA_SERVER_TLS_ENABLED=false
+      - FABRIC_CA_SERVER_PORT=7054
+    ports:
+      - "7054:7054"
+    command: sh -c 'fabric-ca-server start -b admin:adminpw'
+    networks:
+      - fabric-net
+    restart: unless-stopped
+
+  # CLI - Para gerenciar a rede Fabric
+  cli:
+    image: hyperledger/fabric-tools:latest
+    container_name: cli
+    tty: true
+    stdin_open: true
+    environment:
+      - CORE_PEER_TLS_ENABLED=false
+      - CORE_PEER_LOCALMSPID=OrmuzOrg1MSP
+      - CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.ormuz.com/users/Admin@org1.ormuz.com/msp
+      - CORE_PEER_ADDRESS=peer0.org1.ormuz.com:7051
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+    command: sleep infinity
+    volumes:
+      - ./:/opt/gopath/src/github.com/hyperledger/fabric/peer
+      - /var/run/docker.sock:/host/var/run/docker.sock
+    networks:
+      - fabric-net
+    depends_on:
+      - peer0.org1.ormuz.com
+    restart: unless-stopped
+
+# ============================================================================
+# BROKERS, DRONES E SENSORES
+# ============================================================================
+
+  # BROKER 1 - Setor Norte
   broker-1:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: broker-1
     networks:
+      - fabric-net
       - ormuz-net
     environment:
       BROKER_ID: "broker-1"
@@ -18,32 +125,35 @@ services:
       PORT_SENSORES: "9002"
       BROKER_HOST: "broker-1"
       BROKER_CALLBACK: "broker-1:9000"
-      # Formato: ID,TCP,UDP;ID,TCP,UDP;...
-      PEERS: "broker-2,broker-2:9010,broker-2:9011;broker-3,broker-3:9020,broker-3:9021;broker-4,broker-4:9030,broker-4:9031"
+      ENABLE_LEDGER: "true"
+      LEDGER_GATEWAY: "http://peer0.org1.ormuz.com:7051"
+      LEDGER_MOCK: "false"
     command:
       - "-id=broker-1"
       - "-porta-tcp=:9000"
       - "-porta-udp=:9001"
       - "-porta-ctrl=:9002"
-      - "-drones=drone-01=drone-01:9101,drone-02=drone-02:9101"
+      - "-drones=drone-01=drone-01:9101,drone-02=drone-02:9102"
       - "-peers=broker-2,broker-2:9010,broker-2:9011;broker-3,broker-3:9020,broker-3:9021;broker-4,broker-4:9030,broker-4:9031"
+      - "-enable-ledger=true"
+      - "-ledger-mock=false"
+      - "-ledger-gateway=http://peer0.org1.ormuz.com:7051"
     ports:
       - "9000:9000/tcp"
       - "9001:9001/udp"
       - "9002:9002/tcp"
-    extra_hosts:
-      - "broker-1:127.0.0.1"
-      - "broker-2:172.18.0.12"
-      - "broker-3:172.18.0.13"
-      - "broker-4:172.18.0.14"
+    depends_on:
+      - peer0.org1.ormuz.com
     restart: unless-stopped
 
+  # BROKER 2 - Setor Sul
   broker-2:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: broker-2
     networks:
+      - fabric-net
       - ormuz-net
     environment:
       BROKER_ID: "broker-2"
@@ -52,31 +162,35 @@ services:
       PORT_SENSORES: "9012"
       BROKER_HOST: "broker-2"
       BROKER_CALLBACK: "broker-2:9010"
-      PEERS: "broker-1,broker-1:9000,broker-1:9001;broker-3,broker-3:9020,broker-3:9021;broker-4,broker-4:9030,broker-4:9031"
+      ENABLE_LEDGER: "true"
+      LEDGER_GATEWAY: "http://peer0.org1.ormuz.com:7051"
+      LEDGER_MOCK: "false"
     command:
       - "-id=broker-2"
       - "-porta-tcp=:9010"
       - "-porta-udp=:9011"
       - "-porta-ctrl=:9012"
-      - "-drones=drone-03=drone-03:9101,drone-04=drone-04:9101"
+      - "-drones=drone-03=drone-03:9103,drone-04=drone-04:9104"
       - "-peers=broker-1,broker-1:9000,broker-1:9001;broker-3,broker-3:9020,broker-3:9021;broker-4,broker-4:9030,broker-4:9031"
+      - "-enable-ledger=true"
+      - "-ledger-mock=false"
+      - "-ledger-gateway=http://peer0.org1.ormuz.com:7051"
     ports:
       - "9010:9010/tcp"
       - "9011:9011/udp"
       - "9012:9012/tcp"
-    extra_hosts:
-      - "broker-1:172.18.0.11"
-      - "broker-2:127.0.0.1"
-      - "broker-3:172.18.0.13"
-      - "broker-4:172.18.0.14"
+    depends_on:
+      - peer0.org1.ormuz.com
     restart: unless-stopped
 
+  # BROKER 3 - Setor Leste
   broker-3:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: broker-3
     networks:
+      - fabric-net
       - ormuz-net
     environment:
       BROKER_ID: "broker-3"
@@ -85,31 +199,35 @@ services:
       PORT_SENSORES: "9022"
       BROKER_HOST: "broker-3"
       BROKER_CALLBACK: "broker-3:9020"
-      PEERS: "broker-1,broker-1:9000,broker-1:9001;broker-2,broker-2:9010,broker-2:9011;broker-4,broker-4:9030,broker-4:9031"
+      ENABLE_LEDGER: "true"
+      LEDGER_GATEWAY: "http://peer0.org1.ormuz.com:7051"
+      LEDGER_MOCK: "false"
     command:
       - "-id=broker-3"
       - "-porta-tcp=:9020"
       - "-porta-udp=:9021"
       - "-porta-ctrl=:9022"
-      - "-drones=drone-05=drone-05:9101,drone-06=drone-06:9101"
+      - "-drones=drone-05=drone-05:9105,drone-06=drone-06:9106"
       - "-peers=broker-1,broker-1:9000,broker-1:9001;broker-2,broker-2:9010,broker-2:9011;broker-4,broker-4:9030,broker-4:9031"
+      - "-enable-ledger=true"
+      - "-ledger-mock=false"
+      - "-ledger-gateway=http://peer0.org1.ormuz.com:7051"
     ports:
       - "9020:9020/tcp"
       - "9021:9021/udp"
       - "9022:9022/tcp"
-    extra_hosts:
-      - "broker-1:172.18.0.11"
-      - "broker-2:172.18.0.12"
-      - "broker-3:127.0.0.1"
-      - "broker-4:172.18.0.14"
+    depends_on:
+      - peer0.org1.ormuz.com
     restart: unless-stopped
 
+  # BROKER 4 - Setor Oeste
   broker-4:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: broker-4
     networks:
+      - fabric-net
       - ormuz-net
     environment:
       BROKER_ID: "broker-4"
@@ -118,26 +236,31 @@ services:
       PORT_SENSORES: "9032"
       BROKER_HOST: "broker-4"
       BROKER_CALLBACK: "broker-4:9030"
-      PEERS: "broker-1,broker-1:9000,broker-1:9001;broker-2,broker-2:9010,broker-2:9011;broker-3,broker-3:9020,broker-3:9021"
+      ENABLE_LEDGER: "true"
+      LEDGER_GATEWAY: "http://peer0.org1.ormuz.com:7051"
+      LEDGER_MOCK: "false"
     command:
       - "-id=broker-4"
       - "-porta-tcp=:9030"
       - "-porta-udp=:9031"
       - "-porta-ctrl=:9032"
-      - "-drones=drone-07=drone-07:9101,drone-08=drone-08:9101"
+      - "-drones=drone-07=drone-07:9107,drone-08=drone-08:9108"
       - "-peers=broker-1,broker-1:9000,broker-1:9001;broker-2,broker-2:9010,broker-2:9011;broker-3,broker-3:9020,broker-3:9021"
+      - "-enable-ledger=true"
+      - "-ledger-mock=false"
+      - "-ledger-gateway=http://peer0.org1.ormuz.com:7051"
     ports:
       - "9030:9030/tcp"
       - "9031:9031/udp"
       - "9032:9032/tcp"
-    extra_hosts:
-      - "broker-1:172.18.0.11"
-      - "broker-2:172.18.0.12"
-      - "broker-3:172.18.0.13"
-      - "broker-4:127.0.0.1"
+    depends_on:
+      - peer0.org1.ormuz.com
     restart: unless-stopped
 
-  # DRONES (8 no total)
+# ============================================================================
+# DRONES (8 no total)
+# ============================================================================
+
   drone-01:
     build:
       context: .
@@ -161,9 +284,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-02"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9102"
     ports:
-      - "9102:9101/tcp"
+      - "9102:9102/tcp"
     restart: unless-stopped
 
   drone-03:
@@ -175,9 +298,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-03"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9103"
     ports:
-      - "9103:9101/tcp"
+      - "9103:9103/tcp"
     restart: unless-stopped
 
   drone-04:
@@ -189,9 +312,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-04"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9104"
     ports:
-      - "9104:9101/tcp"
+      - "9104:9104/tcp"
     restart: unless-stopped
 
   drone-05:
@@ -203,9 +326,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-05"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9105"
     ports:
-      - "9105:9101/tcp"
+      - "9105:9105/tcp"
     restart: unless-stopped
 
   drone-06:
@@ -217,9 +340,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-06"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9106"
     ports:
-      - "9106:9101/tcp"
+      - "9106:9106/tcp"
     restart: unless-stopped
 
   drone-07:
@@ -231,9 +354,9 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-07"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9107"
     ports:
-      - "9107:9101/tcp"
+      - "9107:9107/tcp"
     restart: unless-stopped
 
   drone-08:
@@ -245,13 +368,16 @@ services:
       - ormuz-net
     environment:
       DRONE_ID: "drone-08"
-      DRONE_PORT: ":9101"
+      DRONE_PORT: ":9108"
     ports:
-      - "9108:9101/tcp"
+      - "9108:9108/tcp"
     restart: unless-stopped
 
-  # SENSORES (3 por broker = 12 sensores total)
-  # BROKER 1 - Setor Norte (3 sensores)
+# ============================================================================
+# SENSORES (12 no total - 3 por broker)
+# ============================================================================
+
+  # BROKER 1 - Setor Norte
   sensor-s1-movimento:
     build:
       context: .
@@ -272,7 +398,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sensor
-    container_name: sensor-s1-pressao
+    container_name: sensor-s1-pres
     networks:
       - ormuz-net
     environment:
@@ -300,7 +426,7 @@ services:
       - broker-1
     restart: unless-stopped
 
-  # BROKER 2 - Setor Sul (3 sensores)
+  # BROKER 2 - Setor Sul
   sensor-s2-movimento:
     build:
       context: .
@@ -321,7 +447,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sensor
-    container_name: sensor-s2-pressao
+    container_name: sensor-s2-pres
     networks:
       - ormuz-net
     environment:
@@ -349,7 +475,7 @@ services:
       - broker-2
     restart: unless-stopped
 
-  # BROKER 3 - Setor Leste (3 sensores)
+  # BROKER 3 - Setor Leste
   sensor-s3-movimento:
     build:
       context: .
@@ -370,7 +496,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sensor
-    container_name: sensor-s3-pressao
+    container_name: sensor-s3-pres
     networks:
       - ormuz-net
     environment:
@@ -398,7 +524,7 @@ services:
       - broker-3
     restart: unless-stopped
 
-  # BROKER 4 - Setor Oeste (3 sensores)
+  # BROKER 4 - Setor Oeste
   sensor-s4-movimento:
     build:
       context: .
@@ -419,7 +545,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sensor
-    container_name: sensor-s4-pressao
+    container_name: sensor-s4-pres
     networks:
       - ormuz-net
     environment:
@@ -446,3 +572,4 @@ services:
     depends_on:
       - broker-4
     restart: unless-stopped
+
