@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ============================================================================
-# DEPLOY DISTRIBUÍDO COM HYPERLEDGER FABRIC
-# Sistema de Brokers + Blockchain em Múltiplas Máquinas
+# DEPLOY DISTRIBUÍDO COM HYPERLEDGER FABRIC - VERSÃO LABORATÓRIO
+# SEM sudo e SEM sshpass (usa SSH normal)
 # ============================================================================
 
 set -e
@@ -13,7 +13,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 NC='\033[0m'
 BOLD='\033[1m'
 
@@ -22,14 +21,11 @@ BOLD='\033[1m'
 # ============================================================================
 
 SSH_USER="${SSH_USER:-tec502}"
-SSH_PASS="${SSH_PASS:-}"
 PROJECT_DIR="Redes-PBL3"
-REPO_URL="https://github.com/welton-cerqueira/SISTEMA-DISTRIBUIDO-REDES2.git"
-FABRIC_IP=""  # IP da máquina que rodará o Fabric (a primeira da lista)
+REPO_URL="https://github.com/welton-cerqueira/Redes-PBL3.git"
+FABRIC_IP=""
 
-# Arrays
 declare -a BROKER_IPS=()
-declare -a ALL_IPS=()
 
 # ============================================================================
 # FUNÇÕES AUXILIARES
@@ -38,7 +34,7 @@ declare -a ALL_IPS=()
 show_help() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO COM HYPERLEDGER FABRIC${NC}                               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     ${BOLD}DEPLOY DISTRIBUÍDO - LABORATÓRIO (SEM SUDO)${NC}                          ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}Uso:${NC} $0 --brokers \"IP1 IP2 IP3 IP4\" [OPÇÕES]"
@@ -47,12 +43,10 @@ show_help() {
     echo "  --brokers \"IP1 IP2 IP3 IP4\"   IPs dos brokers (obrigatório, 4 IPs)"
     echo "  --fabric-ip IP               IP da máquina Fabric (padrão: primeiro broker)"
     echo "  --user USER                  Usuário SSH (padrão: tec502)"
-    echo "  --pass PASS                  Senha SSH"
     echo "  --help                       Mostra esta ajuda"
     echo ""
     echo -e "${BLUE}Exemplo:${NC}"
-    echo "  $0 --brokers \"172.16.103.1 172.16.103.2 172.16.103.3 172.16.103.4\""
-    echo "  $0 --brokers \"...\" --fabric-ip 172.16.103.1"
+    echo "  $0 --brokers \"172.16.201.1 172.16.201.2 172.16.201.3 172.16.201.4\""
     echo ""
 }
 
@@ -84,96 +78,46 @@ print_info() {
 }
 
 # ============================================================================
-# VERIFICAÇÃO DE DEPENDÊNCIAS
-# ============================================================================
-
-check_dependencies() {
-    local deps_ok=true
-    
-    print_step "Verificando dependências"
-    
-    for cmd in ssh ping docker; do
-        if ! command -v $cmd &> /dev/null; then
-            print_error "Comando não encontrado: $cmd"
-            deps_ok=false
-        fi
-    done
-    
-    if [ -n "$SSH_PASS" ] && ! command -v sshpass &> /dev/null; then
-        print_error "sshpass não encontrado. Instale com: sudo apt install sshpass"
-        deps_ok=false
-    fi
-    
-    if [ "$deps_ok" = false ]; then
-        exit 1
-    fi
-    
-    print_success "Todas as dependências OK"
-}
-
-# ============================================================================
-# TESTE DE CONEXÃO
+# TESTE DE CONEXÃO SSH (sem sshpass)
 # ============================================================================
 
 testar_conexao() {
     local ip=$1
     
+    # Teste de ping primeiro
     if ! ping -c 1 -W 1 $ip &> /dev/null; then
         return 1
     fi
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=3 $SSH_USER@$ip 'echo "OK"' &> /dev/null
-    else
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
-            $SSH_USER@$ip 'echo "OK"' &> /dev/null
-    fi
+    # Teste SSH (vai pedir senha se não tiver chave)
+    ssh -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@$ip "echo OK" 2>/dev/null
 }
 
 # ============================================================================
-# DEPLOY DO FABRIC (em uma máquina)
+# EXECUTAR COMANDO SSH (sem sshpass)
 # ============================================================================
 
-deploy_fabric() {
+ssh_cmd() {
     local ip=$1
+    local cmd=$2
     
-    print_step "Deploy do Hyperledger Fabric em $ip"
-    
-    # Copiar script start_fabric.sh
-    local cmd="
-        mkdir -p ~/$PROJECT_DIR/scripts
-    "
-    
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no \
-            ~/Redes-PBL3/scripts/start_fabric.sh $SSH_USER@$ip:~/$PROJECT_DIR/scripts/
-        
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "
-            cd ~/$PROJECT_DIR
-            chmod +x scripts/start_fabric.sh
-            
-            echo '=== Iniciando Fabric ==='
-            ./scripts/start_fabric.sh
-        "
-    else
-        scp -o StrictHostKeyChecking=no \
-            ~/Redes-PBL3/scripts/start_fabric.sh $SSH_USER@$ip:~/$PROJECT_DIR/scripts/
-        
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "
-            cd ~/$PROJECT_DIR
-            chmod +x scripts/start_fabric.sh
-            
-            echo '=== Iniciando Fabric ==='
-            ./scripts/start_fabric.sh
-        "
-    fi
-    
-    print_success "Fabric deployado em $ip"
+    ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
 }
 
 # ============================================================================
-# SETUP DO REPOSITÓRIO
+# COPIAR ARQUIVO (sem scp com senha)
+# ============================================================================
+
+copy_file() {
+    local src=$1
+    local dst_ip=$2
+    local dst_path=$3
+    
+    scp -o StrictHostKeyChecking=no $src $SSH_USER@$dst_ip:$dst_path
+}
+
+# ============================================================================
+# SETUP DO REPOSITÓRIO (sem sudo)
 # ============================================================================
 
 setup_repository() {
@@ -188,17 +132,32 @@ setup_repository() {
             cd ~/$PROJECT_DIR && git pull
         fi
         cd ~/$PROJECT_DIR
-        go mod tidy
-        go build -o broker ./cmd/broker/
-        go build -o drone ./cmd/drone/
-        go build -o sensor ./cmd/sensor/
+        go mod tidy 2>/dev/null || true
+        go build -o broker ./cmd/broker/ 2>/dev/null || true
+        go build -o drone ./cmd/drone/ 2>/dev/null || true
+        go build -o sensor ./cmd/sensor/ 2>/dev/null || true
+        chmod +x broker drone sensor
     "
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    fi
+    ssh_cmd "$ip" "$cmd"
+}
+
+# ============================================================================
+# DEPLOY DO FABRIC (apenas verificar se está rodando)
+# ============================================================================
+
+check_fabric() {
+    local ip=$1
+    
+    print_step "Verificando Hyperledger Fabric em $ip"
+    
+    local cmd="
+        cd ~/fabric-samples/test-network 2>/dev/null && \
+        docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E 'peer|orderer|cli' || \
+        echo 'Fabric não está rodando'
+    "
+    
+    ssh_cmd "$ip" "$cmd"
 }
 
 # ============================================================================
@@ -208,17 +167,14 @@ setup_repository() {
 deploy_broker() {
     local ip=$1
     local index=$2
-    local broker_ip=$3
+    local fabric_ip=$3
     
     local broker_id=$((index + 1))
     local base_port=$((9000 + index * 10))
-    local tcp_port=":${base_port}"
-    local udp_port=":$(($base_port+1))"
-    local sensor_port=":$(($base_port+2))"
     
-    print_info "[$ip] Deployando broker-$broker_id"
+    print_info "[$ip] Deployando broker-$broker_id (porta TCP: $base_port)"
     
-    # Construir lista de peers (todos os outros brokers)
+    # Construir lista de peers
     local peers=""
     for i in "${!BROKER_IPS[@]}"; do
         local peer_idx=$((i + 1))
@@ -232,7 +188,7 @@ deploy_broker() {
         fi
     done
     
-    # Configurar drones (2 por broker)
+    # Configurar drones
     local drone1_id=$((index * 2 + 1))
     local drone2_id=$((index * 2 + 2))
     local drones="drone-$(printf "%02d" $drone1_id)=${ip}:$((9100 + drone1_id)),drone-$(printf "%02d" $drone2_id)=${ip}:$((9100 + drone2_id))"
@@ -242,28 +198,26 @@ deploy_broker() {
         
         # Matar processos antigos
         pkill -f './broker' 2>/dev/null || true
+        sleep 1
         
         # Executar broker
         nohup ./broker \\
             -id=broker-${broker_id} \\
-            -porta-tcp=${tcp_port} \\
-            -porta-udp=${udp_port} \\
-            -porta-ctrl=${sensor_port} \\
+            -porta-tcp=:${base_port} \\
+            -porta-udp=:$(($base_port+1)) \\
+            -porta-ctrl=:$(($base_port+2)) \\
             -drones=\"${drones}\" \\
             -peers=\"${peers}\" \\
             -enable-ledger=true \\
             -ledger-mock=false \\
-            -ledger-gateway=\"http://${FABRIC_IP}:7051\" \\
+            -ledger-gateway=\"http://${fabric_ip}:7051\" \\
             > /tmp/broker-${broker_id}.log 2>&1 &
         
-        echo \"Broker-${broker_id} iniciado (PID: \$!)\"
+        sleep 2
+        echo \"Broker-${broker_id} iniciado (PID: \$(pgrep -f './broker' | head -1))\" 2>/dev/null || echo \"Broker-${broker_id} iniciado\"
     "
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    fi
+    ssh_cmd "$ip" "$cmd"
 }
 
 # ============================================================================
@@ -279,12 +233,13 @@ deploy_drones() {
     local drone1_port=$((9100 + drone1_id))
     local drone2_port=$((9100 + drone2_id))
     
-    print_info "[$ip] Deployando drones: drone-$(printf "%02d" $drone1_id) (porta $drone1_port) e drone-$(printf "%02d" $drone2_id) (porta $drone2_port)"
+    print_info "[$ip] Deployando drones: drone-$(printf "%02d" $drone1_id) e drone-$(printf "%02d" $drone2_id)"
     
     local cmd="
         cd ~/$PROJECT_DIR
         
         pkill -f './drone' 2>/dev/null || true
+        sleep 1
         
         nohup ./drone -id=drone-$(printf "%02d" $drone1_id) -port=:${drone1_port} > /tmp/drone-${drone1_id}.log 2>&1 &
         nohup ./drone -id=drone-$(printf "%02d" $drone2_id) -port=:${drone2_port} > /tmp/drone-${drone2_id}.log 2>&1 &
@@ -292,11 +247,7 @@ deploy_drones() {
         echo \"Drones iniciados\"
     "
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    fi
+    ssh_cmd "$ip" "$cmd"
 }
 
 # ============================================================================
@@ -345,6 +296,7 @@ deploy_sensores() {
         cd ~/$PROJECT_DIR
         
         pkill -f './sensor' 2>/dev/null || true
+        sleep 1
         
         nohup ./sensor -id=sensor-$(printf "%02d" $sensor1_id) -tipo=$tipo1 -local='$local1' -brokers=${ip}:${sensor_port} > /tmp/sensor-${sensor1_id}.log 2>&1 &
         nohup ./sensor -id=sensor-$(printf "%02d" $sensor2_id) -tipo=$tipo2 -local='$local2' -brokers=${ip}:${sensor_port} > /tmp/sensor-${sensor2_id}.log 2>&1 &
@@ -352,11 +304,7 @@ deploy_sensores() {
         echo \"Sensores iniciados\"
     "
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    fi
+    ssh_cmd "$ip" "$cmd"
 }
 
 # ============================================================================
@@ -369,16 +317,12 @@ check_status() {
     echo -e "${BLUE}[$ip] Status:${NC}"
     
     local cmd="
-        echo -n '  Broker: ' && pgrep -f './broker' > /dev/null && echo '✅ Rodando' || echo '❌ Parado'
-        echo -n '  Drones: ' && pgrep -f './drone' > /dev/null && echo '✅ Rodando' || echo '❌ Parado'
-        echo -n '  Sensores: ' && pgrep -f './sensor' > /dev/null && echo '✅ Rodando' || echo '❌ Parado'
+        echo -n '  Broker: ' && pgrep -f './broker' > /dev/null 2>&1 && echo '✅ Rodando' || echo '❌ Parado'
+        echo -n '  Drones: ' && pgrep -f './drone' > /dev/null 2>&1 && echo '✅ Rodando' || echo '❌ Parado'
+        echo -n '  Sensores: ' && pgrep -f './sensor' > /dev/null 2>&1 && echo '✅ Rodando' || echo '❌ Parado'
     "
     
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$ip "$cmd"
-    fi
+    ssh_cmd "$ip" "$cmd"
 }
 
 # ============================================================================
@@ -404,11 +348,6 @@ main() {
                 SSH_USER=$1
                 shift
                 ;;
-            --pass)
-                shift
-                SSH_PASS=$1
-                shift
-                ;;
             --help)
                 show_help
                 exit 0
@@ -424,7 +363,6 @@ main() {
     # Validação
     if [ ${#BROKER_IPS[@]} -ne 4 ]; then
         print_error "É necessário exatamente 4 IPs para os brokers!"
-        echo -e "${YELLOW}Você forneceu ${#BROKER_IPS[@]} IP(s): ${BROKER_IPS[*]}${NC}"
         show_help
         exit 1
     fi
@@ -436,9 +374,6 @@ main() {
     fi
     
     print_banner
-    
-    # Verificar dependências na máquina local
-    check_dependencies
     
     # Mostrar configuração
     echo ""
@@ -462,7 +397,7 @@ main() {
     
     # Confirmar deploy
     echo -e "${YELLOW}⚠️  ATENÇÃO: O deploy será feito nas máquinas acima!${NC}"
-    echo -e "${YELLOW}   O Hyperledger Fabric será instalado em: $FABRIC_IP${NC}"
+    echo -e "${YELLOW}   O Hyperledger Fabric será usado em: $FABRIC_IP${NC}"
     echo ""
     read -p "Deseja continuar? (s/N): " confirm
     if [[ ! "$confirm" =~ ^[Ss]$ ]]; then
@@ -471,34 +406,40 @@ main() {
     fi
     
     # Testar conexões SSH
-    print_step "Testando conexões SSH"
-    ALL_IPS=("${BROKER_IPS[@]}")
-    ALL_IPS+=("$FABRIC_IP")
+    print_step "Testando conexões SSH (pode pedir senha)"
     
-    for ip in $(echo "${ALL_IPS[@]}" | tr ' ' '\n' | sort -u); do
-        if testar_conexao $ip; then
-            print_success "$ip - OK"
+    for ip in "${BROKER_IPS[@]}"; do
+        echo -n "  Testando $ip... "
+        if ssh -o BatchMode=yes -o ConnectTimeout=5 $SSH_USER@$ip "echo OK" 2>/dev/null; then
+            echo -e "${GREEN}OK${NC}"
         else
-            print_error "$ip - Falha na conexão"
-            exit 1
+            echo -e "${YELLOW}Será solicitada a senha${NC}"
+            if ! ssh -o ConnectTimeout=5 $SSH_USER@$ip "echo OK" 2>/dev/null; then
+                print_error "$ip - Falha na conexão"
+                exit 1
+            fi
         fi
     done
     
     # ========================================================================
-    # 1. DEPLOY DO FABRIC
+    # 1. SETUP DO REPOSITÓRIO
     # ========================================================================
-    print_step "1. Deploy do Hyperledger Fabric"
+    print_step "1. Setup do repositório nas máquinas"
     
-    # Primeiro, garantir que o repositório existe na máquina Fabric
-    setup_repository $FABRIC_IP
-    
-    # Deploy do Fabric
-    deploy_fabric $FABRIC_IP
+    for ip in "${BROKER_IPS[@]}"; do
+        setup_repository $ip
+    done
     
     # ========================================================================
-    # 2. DEPLOY DOS BROKERS, DRONES E SENSORES
+    # 2. VERIFICAR FABRIC
     # ========================================================================
-    print_step "2. Deploy dos Brokers, Drones e Sensores"
+    print_step "2. Verificando Hyperledger Fabric"
+    check_fabric $FABRIC_IP
+    
+    # ========================================================================
+    # 3. DEPLOY DOS BROKERS, DRONES E SENSORES
+    # ========================================================================
+    print_step "3. Deploy dos Brokers, Drones e Sensores"
     
     for i in "${!BROKER_IPS[@]}"; do
         ip=${BROKER_IPS[$i]}
@@ -508,23 +449,22 @@ main() {
         echo -e "${CYAN}🚀 Configurando máquina $((i+1)): $ip${NC}"
         echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
         
-        setup_repository $ip
         deploy_broker $ip $i "$FABRIC_IP"
         deploy_drones $ip $i
         deploy_sensores $ip $i
     done
     
     # ========================================================================
-    # 3. AGUARDAR ESTABILIZAÇÃO
+    # 4. AGUARDAR ESTABILIZAÇÃO
     # ========================================================================
-    print_step "3. Aguardando estabilização do sistema"
+    print_step "4. Aguardando estabilização do sistema"
     echo -e "${BLUE}⏳ Aguardando 15 segundos...${NC}"
     sleep 15
     
     # ========================================================================
-    # 4. VERIFICAR STATUS
+    # 5. VERIFICAR STATUS
     # ========================================================================
-    print_step "4. Verificando status do sistema"
+    print_step "5. Verificando status do sistema"
     echo ""
     
     for i in "${!BROKER_IPS[@]}"; do
@@ -535,21 +475,6 @@ main() {
     done
     
     # ========================================================================
-    # 5. VERIFICAR LÍDER ELEITO
-    # ========================================================================
-    print_step "5. Verificando líder eleito"
-    
-    local leader_ip="${BROKER_IPS[0]}"
-    echo -e "${BLUE}Consultando broker em $leader_ip...${NC}"
-    
-    local cmd="tail -20 /tmp/broker-1.log | grep 'Novo líder eleito' | tail -1"
-    if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no $SSH_USER@$leader_ip "$cmd"
-    else
-        ssh -o StrictHostKeyChecking=no $SSH_USER@$leader_ip "$cmd"
-    fi
-    
-    # ========================================================================
     # 6. RESUMO FINAL
     # ========================================================================
     echo ""
@@ -558,25 +483,20 @@ main() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}📋 Componentes do sistema:${NC}"
-    echo -e "  ${GREEN}✅${NC} Hyperledger Fabric em: ${FABRIC_IP}"
     echo -e "  ${GREEN}✅${NC} 4 Brokers distribuídos"
     echo -e "  ${GREEN}✅${NC} 8 Drones (2 por broker)"
     echo -e "  ${GREEN}✅${NC} 8 Sensores (2 por broker)"
     echo ""
     echo -e "${CYAN}📋 Comandos úteis:${NC}"
     echo ""
-    echo -e "  ${YELLOW}Ver logs do Fabric:${NC}"
-    echo "    ssh $SSH_USER@$FABRIC_IP 'docker exec cli peer chaincode query -C ormuz-channel -n mission -c \"{\\\"Args\\\":[\\\"GetMissionSummary\\\"]}\"'"
-    echo ""
     echo -e "  ${YELLOW}Ver logs de um broker:${NC}"
     echo "    ssh $SSH_USER@<ip> 'tail -f /tmp/broker-1.log'"
     echo ""
     echo -e "  ${YELLOW}Parar todos os serviços:${NC}"
     echo "    for ip in ${BROKER_IPS[*]}; do ssh $SSH_USER@\$ip 'pkill -f \"./broker\"; pkill -f \"./drone\"; pkill -f \"./sensor\"'; done"
-    echo "    ssh $SSH_USER@$FABRIC_IP 'cd ~/fabric-samples/test-network && ./network.sh down'"
     echo ""
     echo -e "  ${YELLOW}Verificar líder eleito:${NC}"
-    echo "    for ip in ${BROKER_IPS[*]}; do echo \"=== \$ip ===\"; ssh $SSH_USER@\$ip 'tail -5 /tmp/broker-1.log | grep \"líder\"'; done"
+    echo "    for ip in ${BROKER_IPS[*]}; do echo \"=== \$ip ===\"; ssh $SSH_USER@\$ip 'tail -5 /tmp/broker-1.log | grep -E \"lider|líder\"'; done"
     echo ""
 }
 
